@@ -20,7 +20,7 @@ class HomeShell extends ConsumerStatefulWidget {
 class _HomeShellState extends ConsumerState<HomeShell> {
   int _index = 0;
 
-  static const _pages = [
+  final _pages = const [
     TodayDashboardScreen(),
     VisitsScreen(),
     PartiesScreen(),

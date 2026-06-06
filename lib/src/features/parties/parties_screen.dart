@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-import '../field/field_sample_data.dart';
 import '../shared/field_widgets.dart';
 
 class PartiesScreen extends StatelessWidget {
@@ -11,27 +10,26 @@ class PartiesScreen extends StatelessWidget {
     return PageScaffold(
       title: 'Parties',
       subtitle:
-          'Doctors, hospitals, chemists, retailers, distributors, and stockists in one list.',
+          'Doctors, hospitals, chemists, retailers, distributors, and stockists.',
       children: [
-        const TextField(
-          decoration: InputDecoration(
-            hintText: 'Search name, area, phone',
-            prefixIcon: Icon(Icons.search),
-          ),
-        ),
-        const SizedBox(height: 12),
-        ...sampleParties.map(
-          (party) => PartyCard(
-            party: party,
-            trailing: party.outstanding > 0
-                ? Text(
-                    '₹${party.outstanding.toStringAsFixed(0)}',
-                    style: const TextStyle(
-                      color: Color(0xFFDC2626),
-                      fontWeight: FontWeight.w800,
-                    ),
-                  )
-                : null,
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(
+                  Icons.info_outline,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+                const SizedBox(width: 10),
+                const Expanded(
+                  child: Text(
+                    'Party / contact lookup will connect to the ERP contacts endpoint in a future release. Visits and collections are already tracked per visit.',
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ],
