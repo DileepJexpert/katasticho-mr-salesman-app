@@ -589,10 +589,13 @@ class FieldApiClient {
     return _unwrap(response.data);
   }
 
-  Future<Map<String, dynamic>> claimAllowance({String? date}) async {
+  Future<Map<String, dynamic>> claimAllowance({String? date, double? km}) async {
     final response = await _dio.post<Map<String, dynamic>>(
       '/api/v1/field-sales/allowance/claim',
-      data: {if (date != null) 'date': date},
+      data: {
+        if (date != null) 'date': date,
+        if (km != null) 'km': km,
+      },
       options: _authOptions(),
     );
     return _unwrap(response.data);

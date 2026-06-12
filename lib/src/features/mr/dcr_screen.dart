@@ -85,8 +85,61 @@ class _DcrScreenState extends ConsumerState<DcrScreen> {
   }
 
   Future<void> _claimAllowance() async {
+    final allowance = _allowance;
+    if (allowance == null) return;
+
+    double? km;
+    final kmEditable = allowance['kmEditable'] == true;
+    final manual = allowance['mode']?.toString() == 'MANUAL';
+    if (kmEditable) {
+      // Let the salesperson adjust the distance — e.g. deduct a personal
+      // detour the GPS trail picked up. The GPS km stays on record for
+      // the manager either way.
+      final gpsKm = (allowance['distanceKm'] as num?)?.toDouble() ?? 0;
+      final kmCtl =
+          TextEditingController(text: manual ? '' : gpsKm.toStringAsFixed(1));
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Claim TA/DA'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (!manual)
+                Text('GPS recorded ${gpsKm.toStringAsFixed(1)} km today. '
+                    'Adjust if some of it was personal travel.'),
+              if (manual)
+                const Text('Enter the distance you travelled for work today.'),
+              const SizedBox(height: 8),
+              TextField(
+                controller: kmCtl,
+                keyboardType: TextInputType.number,
+                decoration:
+                    const InputDecoration(labelText: 'Distance to claim (km)'),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Cancel')),
+            FilledButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Claim')),
+          ],
+        ),
+      );
+      if (ok != true) return;
+      km = double.tryParse(kmCtl.text);
+      if (km == null) {
+        _toast('Enter a valid distance in km');
+        return;
+      }
+    }
+
     try {
-      await ref.read(apiClientProvider).claimAllowance();
+      await ref.read(apiClientProvider).claimAllowance(km: km);
       _toast('Allowance claimed — expense recorded');
       await _load();
     } catch (e) {
