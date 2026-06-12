@@ -4,10 +4,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../auth/auth_controller.dart';
 import '../collections/collections_screen.dart';
 import '../dashboard/today_dashboard_screen.dart';
+import '../dayclose/day_close_screen.dart';
 import '../expenses/expenses_screen.dart';
 import '../orders/orders_screen.dart';
 import '../parties/parties_screen.dart';
 import '../sync/sync_screen.dart';
+import '../van/van_stock_screen.dart';
 import '../visits/visits_screen.dart';
 
 class HomeShell extends ConsumerStatefulWidget {
@@ -27,7 +29,8 @@ class _HomeShellState extends ConsumerState<HomeShell> {
     OrdersScreen(),
     CollectionsScreen(),
     ExpensesScreen(),
-    SyncScreen(),
+    DayCloseScreen(),
+    VanStockScreen(),
   ];
 
   @override
@@ -47,6 +50,20 @@ class _HomeShellState extends ConsumerState<HomeShell> {
           ],
         ),
         actions: [
+          IconButton(
+            tooltip: 'Sync',
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => Scaffold(
+                    appBar: AppBar(title: const Text('Sync')),
+                    body: const SyncScreen(),
+                  ),
+                ),
+              );
+            },
+            icon: const Icon(Icons.sync),
+          ),
           IconButton(
             tooltip: 'Logout',
             onPressed: () => ref.read(authControllerProvider.notifier).logout(),
@@ -71,7 +88,14 @@ class _HomeShellState extends ConsumerState<HomeShell> {
             icon: Icon(Icons.receipt_long),
             label: 'Expense',
           ),
-          NavigationDestination(icon: Icon(Icons.sync), label: 'Sync'),
+          NavigationDestination(
+            icon: Icon(Icons.nightlight_round),
+            label: 'Day Close',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.local_shipping),
+            label: 'Van',
+          ),
         ],
       ),
     );

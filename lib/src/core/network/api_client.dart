@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dio/dio.dart';
 
 import '../config/app_config.dart';
@@ -15,10 +17,22 @@ class FieldApiClient {
             'Accept': 'application/json',
           },
         ),
-      );
+      ) {
+    _dio.interceptors.add(_TokenRefreshInterceptor(this));
+  }
 
   final Dio _dio;
   FieldSession? _session;
+
+  /// Invoked after a successful background token refresh so the app can
+  /// persist the new session (SessionStore) and update auth state.
+  void Function(FieldSession session)? onSessionRefreshed;
+
+  /// Invoked when a token refresh fails — the session is no longer usable
+  /// and the user should be sent back to the login screen.
+  void Function()? onSessionExpired;
+
+  FieldSession? get session => _session;
 
   void setSession(FieldSession? session) {
     _session = session;
@@ -33,6 +47,14 @@ class FieldApiClient {
     final response = await _dio.post<Map<String, dynamic>>(
       '/api/v1/auth/login',
       data: {'identifier': identifier, 'password': password},
+    );
+    return _unwrap(response.data);
+  }
+
+  Future<Map<String, dynamic>> refreshToken(String refreshToken) async {
+    final response = await _dio.post<Map<String, dynamic>>(
+      '/api/v1/auth/refresh',
+      data: {'refreshToken': refreshToken},
     );
     return _unwrap(response.data);
   }
@@ -243,6 +265,221 @@ class FieldApiClient {
     return _unwrapList(response.data);
   }
 
+  // ── Contacts (Parties) ────────────────────────────────────────
+
+  /// GET /api/v1/contacts — paged (Spring Page); returns `data.content`.
+  /// [type] filters by contact type: CUSTOMER / VENDOR / BOTH.
+  Future<List<dynamic>> getContacts({String? search, String? type}) async {
+    final response = await _dio.get<Map<String, dynamic>>(
+      '/api/v1/contacts',
+      queryParameters: {
+        if (search != null && search.isNotEmpty) 'search': search,
+        if (type != null && type.isNotEmpty) 'type': type,
+        'size': 50,
+      },
+      options: _authOptions(),
+    );
+    return _unwrapList(response.data);
+  }
+
+  Future<Map<String, dynamic>> getContact(String id) async {
+    final response = await _dio.get<Map<String, dynamic>>(
+      '/api/v1/contacts/$id',
+      options: _authOptions(),
+    );
+    return _unwrap(response.data);
+  }
+
+  // ── Expenses ──────────────────────────────────────────────────
+
+  /// GET /api/v1/expenses — paged response; returns `data.content`.
+  /// [from] / [to] are ISO dates (yyyy-MM-dd).
+  Future<List<dynamic>> getExpenses({String? from, String? to}) async {
+    final response = await _dio.get<Map<String, dynamic>>(
+      '/api/v1/expenses',
+      queryParameters: {
+        if (from != null && from.isNotEmpty) 'from': from,
+        if (to != null && to.isNotEmpty) 'to': to,
+        'size': 50,
+      },
+      options: _authOptions(),
+    );
+    return _unwrapList(response.data);
+  }
+
+  /// POST /api/v1/expenses — requires expenseDate, accountId (expense
+  /// account), amount, paymentMode, paidThroughId (cash/bank account).
+  Future<Map<String, dynamic>> createExpense({
+    required String expenseDate,
+    required String accountId,
+    required double amount,
+    required String paymentMode,
+    required String paidThroughId,
+    String? category,
+    String? description,
+  }) async {
+    final response = await _dio.post<Map<String, dynamic>>(
+      '/api/v1/expenses',
+      data: {
+        'expenseDate': expenseDate,
+        'accountId': accountId,
+        'amount': amount,
+        'paymentMode': paymentMode,
+        'paidThroughId': paidThroughId,
+        if (category != null && category.isNotEmpty) 'category': category,
+        if (description != null && description.isNotEmpty)
+          'description': description,
+      },
+      options: _authOptions(),
+    );
+    return _unwrap(response.data);
+  }
+
+  // ── Chart of Accounts ─────────────────────────────────────────
+
+  /// GET /api/v1/accounts — flat list used to resolve the expense
+  /// account and the cash (paid-through) account for expense entry.
+  Future<List<dynamic>> getAccounts() async {
+    final response = await _dio.get<Map<String, dynamic>>(
+      '/api/v1/accounts',
+      options: _authOptions(),
+    );
+    return _unwrapList(response.data);
+  }
+
+  // ── Catalog & Sales Orders ────────────────────────────────────
+
+  /// GET /api/v1/items — paged (Spring Page); returns `data.content`.
+  /// Each item: id, sku, name, salePrice, mrp, gstRate, defaultTaxGroupId,
+  /// unitOfMeasure, hsnCode, totalOnHand, trackInventory.
+  Future<List<dynamic>> searchItems(String query) async {
+    final response = await _dio.get<Map<String, dynamic>>(
+      '/api/v1/items',
+      queryParameters: {
+        if (query.isNotEmpty) 'search': query,
+        'size': 10,
+        'activeOnly': true,
+      },
+      options: _authOptions(),
+    );
+    return _unwrapList(response.data);
+  }
+
+  /// POST /api/v1/sales-orders — creates a real Sales Order.
+  /// Lines: [{'itemId', 'description', 'quantity', 'rate', 'discountPct',
+  /// 'taxGroupId'?, 'hsnCode'?}]. Returns the full SO map including
+  /// `id`, `salesOrderNumber`, `totalAmount`, `status` and `warnings`
+  /// (warnings arrive AFTER the SO has been created — informational only).
+  Future<Map<String, dynamic>> createSalesOrder({
+    required String contactId,
+    required List<Map<String, dynamic>> lines,
+    String? notes,
+  }) async {
+    final response = await _dio.post<Map<String, dynamic>>(
+      '/api/v1/sales-orders',
+      data: {
+        'contactId': contactId,
+        'lines': lines,
+        if (notes != null && notes.isNotEmpty) 'notes': notes,
+      },
+      options: _authOptions(),
+    );
+    return _unwrap(response.data);
+  }
+
+  // ── Van Stock ─────────────────────────────────────────────────
+
+  Future<List<dynamic>> getVanStock(String vanId) async {
+    final response = await _dio.get<Map<String, dynamic>>(
+      '/api/v1/field-sales/vans/$vanId/stock',
+      options: _authOptions(),
+    );
+    return _unwrapList(response.data);
+  }
+
+  /// Creates a DRAFT van load transfer.
+  /// Lines: [{'itemId': uuid, 'quantity': num, 'batchId'?: uuid}]
+  Future<Map<String, dynamic>> createVanLoad(
+    String vanId,
+    String warehouseId,
+    List<Map<String, dynamic>> lines,
+  ) async {
+    final response = await _dio.post<Map<String, dynamic>>(
+      '/api/v1/field-sales/van-transfers/load',
+      data: {'vanId': vanId, 'warehouseId': warehouseId, 'lines': lines},
+      options: _authOptions(),
+    );
+    return _unwrap(response.data);
+  }
+
+  Future<Map<String, dynamic>> confirmVanLoad(String transferId) async {
+    final response = await _dio.post<Map<String, dynamic>>(
+      '/api/v1/field-sales/van-transfers/$transferId/confirm-load',
+      options: _authOptions(),
+    );
+    return _unwrap(response.data);
+  }
+
+  /// Creates a DRAFT van return transfer.
+  Future<Map<String, dynamic>> createVanReturn(
+    String vanId,
+    String warehouseId,
+    List<Map<String, dynamic>> lines, {
+    String? routeExecutionId,
+  }) async {
+    final response = await _dio.post<Map<String, dynamic>>(
+      '/api/v1/field-sales/van-transfers/return',
+      data: {
+        'vanId': vanId,
+        'warehouseId': warehouseId,
+        if (routeExecutionId != null) 'routeExecutionId': routeExecutionId,
+        'lines': lines,
+      },
+      options: _authOptions(),
+    );
+    return _unwrap(response.data);
+  }
+
+  Future<Map<String, dynamic>> confirmVanReturn(String transferId) async {
+    final response = await _dio.post<Map<String, dynamic>>(
+      '/api/v1/field-sales/van-transfers/$transferId/confirm-return',
+      options: _authOptions(),
+    );
+    return _unwrap(response.data);
+  }
+
+  Future<List<dynamic>> getVanTransfers(String vanId) async {
+    final response = await _dio.get<Map<String, dynamic>>(
+      '/api/v1/field-sales/van-transfers/van/$vanId',
+      options: _authOptions(),
+    );
+    return _unwrapList(response.data);
+  }
+
+  Future<List<dynamic>> getTransferLines(String transferId) async {
+    final response = await _dio.get<Map<String, dynamic>>(
+      '/api/v1/field-sales/van-transfers/$transferId/lines',
+      options: _authOptions(),
+    );
+    return _unwrapList(response.data);
+  }
+
+  // ── Offline replay ────────────────────────────────────────────
+
+  /// Generic authenticated POST used by the offline queue to replay
+  /// queued actions against their original endpoint + body.
+  Future<Map<String, dynamic>> rawPost(
+    String path,
+    Map<String, dynamic> data,
+  ) async {
+    final response = await _dio.post<Map<String, dynamic>>(
+      path,
+      data: data,
+      options: _authOptions(),
+    );
+    return _unwrap(response.data);
+  }
+
   // ── Helpers ───────────────────────────────────────────────────
 
   Options _authOptions() {
@@ -269,5 +506,98 @@ class FieldApiClient {
     final content = (data is Map) ? data['content'] : null;
     if (content is List) return content;
     return [];
+  }
+}
+
+/// Transparent 401 → refresh → retry interceptor.
+///
+/// On a 401 from any authenticated call it refreshes the access token via
+/// `POST /api/v1/auth/refresh` (serialized through a shared [Completer] so
+/// concurrent 401s trigger exactly one refresh), updates the client session,
+/// notifies [FieldApiClient.onSessionRefreshed], and replays the original
+/// request. If the refresh itself fails, [FieldApiClient.onSessionExpired]
+/// fires so the app can drop back to the login screen.
+class _TokenRefreshInterceptor extends Interceptor {
+  _TokenRefreshInterceptor(this._client);
+
+  final FieldApiClient _client;
+  Completer<bool>? _refreshCompleter;
+
+  static const _skippedPaths = ['/api/v1/auth/login', '/api/v1/auth/refresh'];
+
+  @override
+  Future<void> onError(
+    DioException err,
+    ErrorInterceptorHandler handler,
+  ) async {
+    final status = err.response?.statusCode;
+    final path = err.requestOptions.path;
+    final session = _client.session;
+
+    final shouldAttempt =
+        status == 401 &&
+        session != null &&
+        !session.isDemo &&
+        session.refreshToken.isNotEmpty &&
+        !_skippedPaths.any(path.contains);
+
+    if (!shouldAttempt) {
+      handler.next(err);
+      return;
+    }
+
+    final refreshed = await _refresh();
+    if (!refreshed) {
+      handler.next(err);
+      return;
+    }
+
+    // Replay the original request with the fresh token.
+    final fresh = _client.session;
+    if (fresh == null) {
+      handler.next(err);
+      return;
+    }
+    final options = err.requestOptions;
+    options.headers['Authorization'] = 'Bearer ${fresh.accessToken}';
+    options.headers['X-Org-Id'] = fresh.orgId;
+    try {
+      final response = await _client._dio.fetch<dynamic>(options);
+      handler.resolve(response);
+    } on DioException catch (retryError) {
+      handler.next(retryError);
+    } catch (_) {
+      handler.next(err);
+    }
+  }
+
+  Future<bool> _refresh() async {
+    final inFlight = _refreshCompleter;
+    if (inFlight != null) return inFlight.future;
+
+    final completer = Completer<bool>();
+    _refreshCompleter = completer;
+    try {
+      final current = _client.session;
+      if (current == null || current.refreshToken.isEmpty) {
+        completer.complete(false);
+      } else {
+        final payload = await _client.refreshToken(current.refreshToken);
+        final next = FieldSession.fromAuthPayload(payload);
+        if (next.accessToken.isEmpty) {
+          throw StateError('Refresh response missing accessToken');
+        }
+        _client.setSession(next);
+        _client.onSessionRefreshed?.call(next);
+        completer.complete(true);
+      }
+    } catch (_) {
+      _client.setSession(null);
+      _client.onSessionExpired?.call();
+      completer.complete(false);
+    } finally {
+      _refreshCompleter = null;
+    }
+    return completer.future;
   }
 }

@@ -42,6 +42,7 @@ class AuthController extends Notifier<AuthState> {
     final api = ref.read(apiClientProvider);
     final session = await store.load();
     api.setSession(session);
+    _wireInterceptorCallbacks();
     state = AuthState(session: session);
   }
 
@@ -56,10 +57,26 @@ class AuthController extends Notifier<AuthState> {
       final session = FieldSession.fromAuthPayload(payload);
       await ref.read(sessionStoreProvider).save(session);
       api.setSession(session);
+      _wireInterceptorCallbacks();
       state = AuthState(session: session);
     } catch (error) {
       state = AuthState(error: _friendlyError(error));
     }
+  }
+
+  /// Connects the API client's token-refresh interceptor to auth state:
+  /// a successful background refresh is persisted + reflected in state,
+  /// a failed refresh clears the session and returns to the login screen.
+  void _wireInterceptorCallbacks() {
+    final api = ref.read(apiClientProvider);
+    api.onSessionRefreshed = (session) async {
+      await ref.read(sessionStoreProvider).save(session);
+      state = AuthState(session: session);
+    };
+    api.onSessionExpired = () async {
+      await ref.read(sessionStoreProvider).clear();
+      state = const AuthState();
+    };
   }
 
   Future<void> startDemo() async {
@@ -71,7 +88,10 @@ class AuthController extends Notifier<AuthState> {
 
   Future<void> logout() async {
     await ref.read(sessionStoreProvider).clear();
-    ref.read(apiClientProvider).setSession(null);
+    final api = ref.read(apiClientProvider);
+    api.setSession(null);
+    api.onSessionRefreshed = null;
+    api.onSessionExpired = null;
     state = const AuthState();
   }
 

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../auth/auth_controller.dart';
 import '../shared/field_widgets.dart';
+import 'order_builder_screen.dart';
 
 class OrdersScreen extends ConsumerStatefulWidget {
   const OrdersScreen({super.key});
@@ -61,6 +62,62 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
       if (mounted) setState(() => _error = e.toString());
     } finally {
       if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  /// Record Order entry point: bottom sheet with two paths —
+  /// build a real line-item Sales Order, or the quick-amount dialog.
+  Future<void> _showOrderOptions(Map<String, dynamic> visit) async {
+    final visitId = visit['id']?.toString() ?? '';
+    final contactId = visit['contactId']?.toString() ?? '';
+    final contactName =
+        visit['contactName']?.toString() ??
+        visit['contactId']?.toString() ??
+        'Customer';
+
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 8),
+            ListTile(
+              leading: const Icon(Icons.inventory_2_outlined),
+              title: const Text('Build order (items)'),
+              subtitle: const Text(
+                'Browse catalog, build a cart, create a Sales Order',
+              ),
+              onTap: () => Navigator.pop(ctx, 'build'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.currency_rupee),
+              title: const Text('Quick amount'),
+              subtitle: const Text(
+                'Just record the order value (works offline)',
+              ),
+              onTap: () => Navigator.pop(ctx, 'quick'),
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+    if (choice == null || !mounted) return;
+
+    if (choice == 'build') {
+      final placed = await Navigator.of(context).push<bool>(
+        MaterialPageRoute(
+          builder: (_) => OrderBuilderScreen(
+            visitId: visitId,
+            contactId: contactId,
+            contactName: contactName,
+          ),
+        ),
+      );
+      if (placed == true && mounted) await _loadVisits();
+    } else {
+      await _recordOrder(visitId, contactName);
     }
   }
 
@@ -204,7 +261,6 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
             )
           else
             ..._visits.map((visit) {
-              final visitId = visit['id']?.toString() ?? '';
               final name =
                   visit['contactName']?.toString() ??
                   visit['contactId']?.toString() ??
@@ -245,7 +301,7 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
                       ],
                       const SizedBox(height: 10),
                       FilledButton.icon(
-                        onPressed: () => _recordOrder(visitId, name),
+                        onPressed: () => _showOrderOptions(visit),
                         icon: const Icon(Icons.add_shopping_cart, size: 18),
                         label: Text(
                           existingOrder != null && existingOrder > 0

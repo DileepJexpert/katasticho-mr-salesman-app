@@ -1,8 +1,11 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/location/location_service.dart';
+import '../../core/storage/offline_queue_provider.dart';
 import '../auth/auth_controller.dart';
+import '../orders/order_builder_screen.dart';
 import '../shared/field_widgets.dart';
 
 class VisitsScreen extends ConsumerStatefulWidget {
@@ -93,20 +96,32 @@ class _VisitsScreenState extends ConsumerState<VisitsScreen> {
   }
 
   Future<void> _checkIn(String visitId) async {
+    FieldLocation? loc;
     try {
-      final loc = await _locationService.currentLocation();
+      loc = await _locationService.currentLocation();
+    } catch (_) {
+      loc = null;
+    }
+    final latitude = loc?.latitude ?? 0.0;
+    final longitude = loc?.longitude ?? 0.0;
+
+    try {
       await ref
           .read(apiClientProvider)
-          .checkIn(
-            visitId,
-            latitude: loc?.latitude ?? 0,
-            longitude: loc?.longitude ?? 0,
-          );
+          .checkIn(visitId, latitude: latitude, longitude: longitude);
       if (loc == null) _showInfo('Location unavailable — using default');
       _showSuccess('Checked in');
       await _loadData();
     } catch (e) {
-      _showError('Check-in failed: $e');
+      if (_isNetworkError(e)) {
+        await _enqueueAction(
+          'CHECK_IN',
+          '/api/v1/field-sales/visits/$visitId/check-in',
+          {'latitude': latitude, 'longitude': longitude},
+        );
+      } else {
+        _showError('Check-in failed: $e');
+      }
     }
   }
 
@@ -138,21 +153,41 @@ class _VisitsScreenState extends ConsumerState<VisitsScreen> {
     );
     if (proceed != true || !mounted) return;
 
+    FieldLocation? loc;
     try {
-      final loc = await _locationService.currentLocation();
-      final notes = notesCtl.text.trim();
+      loc = await _locationService.currentLocation();
+    } catch (_) {
+      loc = null;
+    }
+    final latitude = loc?.latitude ?? 0.0;
+    final longitude = loc?.longitude ?? 0.0;
+    final notes = notesCtl.text.trim();
+
+    try {
       await ref
           .read(apiClientProvider)
           .checkOut(
             visitId,
-            latitude: loc?.latitude ?? 0,
-            longitude: loc?.longitude ?? 0,
+            latitude: latitude,
+            longitude: longitude,
             notes: notes.isNotEmpty ? notes : null,
           );
       _showSuccess('Checked out');
       await _loadData();
     } catch (e) {
-      _showError('Check-out failed: $e');
+      if (_isNetworkError(e)) {
+        await _enqueueAction(
+          'CHECK_OUT',
+          '/api/v1/field-sales/visits/$visitId/check-out',
+          {
+            'latitude': latitude,
+            'longitude': longitude,
+            if (notes.isNotEmpty) 'notes': notes,
+          },
+        );
+      } else {
+        _showError('Check-out failed: $e');
+      }
     }
   }
 
@@ -200,6 +235,63 @@ class _VisitsScreenState extends ConsumerState<VisitsScreen> {
       await _loadData();
     } catch (e) {
       _showError('Failed to skip: $e');
+    }
+  }
+
+  /// Record Order entry point: bottom sheet with two paths —
+  /// build a real line-item Sales Order, or the quick-amount dialog
+  /// (which stays offline-capable).
+  Future<void> _showOrderOptions(Map<String, dynamic> visit) async {
+    final visitId = visit['id']?.toString() ?? '';
+    final contactId = visit['contactId']?.toString() ?? '';
+    final contactName =
+        visit['contactName']?.toString() ??
+        visit['contactId']?.toString() ??
+        'Customer';
+
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 8),
+            ListTile(
+              leading: const Icon(Icons.inventory_2_outlined),
+              title: const Text('Build order (items)'),
+              subtitle: const Text(
+                'Browse catalog, build a cart, create a Sales Order',
+              ),
+              onTap: () => Navigator.pop(ctx, 'build'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.currency_rupee),
+              title: const Text('Quick amount'),
+              subtitle: const Text(
+                'Just record the order value (works offline)',
+              ),
+              onTap: () => Navigator.pop(ctx, 'quick'),
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+    if (choice == null || !mounted) return;
+
+    if (choice == 'build') {
+      final placed = await Navigator.of(context).push<bool>(
+        MaterialPageRoute(
+          builder: (_) => OrderBuilderScreen(
+            visitId: visitId,
+            contactId: contactId,
+            contactName: contactName,
+          ),
+        ),
+      );
+      if (placed == true && mounted) await _loadData();
+    } else {
+      await _recordOrder(visitId);
     }
   }
 
@@ -253,18 +345,25 @@ class _VisitsScreenState extends ConsumerState<VisitsScreen> {
     );
     if (proceed != true || !mounted) return;
 
+    final salesOrderId = soIdCtl.text.trim();
+    final orderValue = double.tryParse(valueCtl.text.trim()) ?? 0;
+
     try {
       await ref
           .read(apiClientProvider)
-          .recordOrder(
-            visitId,
-            salesOrderId: soIdCtl.text.trim(),
-            orderValue: double.tryParse(valueCtl.text.trim()) ?? 0,
-          );
+          .recordOrder(visitId, salesOrderId: salesOrderId, orderValue: orderValue);
       _showSuccess('Order recorded');
       await _loadData();
     } catch (e) {
-      _showError('Failed to record order: $e');
+      if (_isNetworkError(e)) {
+        await _enqueueAction(
+          'RECORD_ORDER',
+          '/api/v1/field-sales/visits/$visitId/record-order',
+          {'salesOrderId': salesOrderId, 'orderValue': orderValue},
+        );
+      } else {
+        _showError('Failed to record order: $e');
+      }
     }
   }
 
@@ -304,18 +403,65 @@ class _VisitsScreenState extends ConsumerState<VisitsScreen> {
     );
     if (proceed != true || !mounted) return;
 
+    final collectionAmount = double.tryParse(amountCtl.text.trim()) ?? 0;
+
     try {
       await ref
           .read(apiClientProvider)
-          .recordCollection(
-            visitId,
-            collectionAmount: double.tryParse(amountCtl.text.trim()) ?? 0,
-          );
+          .recordCollection(visitId, collectionAmount: collectionAmount);
       _showSuccess('Collection recorded');
       await _loadData();
     } catch (e) {
-      _showError('Failed to record collection: $e');
+      if (_isNetworkError(e)) {
+        await _enqueueAction(
+          'RECORD_COLLECTION',
+          '/api/v1/field-sales/visits/$visitId/record-collection',
+          {'collectionAmount': collectionAmount},
+        );
+      } else {
+        _showError('Failed to record collection: $e');
+      }
     }
+  }
+
+  // ── Offline support ───────────────────────────────────────────
+
+  /// True when the failure is connectivity-related (worth queuing
+  /// offline) rather than a server-side rejection.
+  bool _isNetworkError(Object e) {
+    if (e is DioException) {
+      switch (e.type) {
+        case DioExceptionType.connectionTimeout:
+        case DioExceptionType.sendTimeout:
+        case DioExceptionType.receiveTimeout:
+        case DioExceptionType.connectionError:
+          return true;
+        default:
+          break;
+      }
+    }
+    final text = e.toString();
+    return text.contains('SocketException') ||
+        text.contains('Connection refused') ||
+        text.contains('Network is unreachable') ||
+        text.contains('Failed host lookup');
+  }
+
+  Future<void> _enqueueAction(
+    String type,
+    String endpoint,
+    Map<String, dynamic> body,
+  ) async {
+    await ref
+        .read(offlineQueueProvider)
+        .enqueue(type: type, endpoint: endpoint, body: body);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Saved offline — will sync when connected'),
+        backgroundColor: Colors.orange,
+      ),
+    );
   }
 
   void _showSuccess(String msg) {
@@ -583,7 +729,7 @@ class _VisitsScreenState extends ConsumerState<VisitsScreen> {
                     label: const Text('Check Out'),
                   ),
                   OutlinedButton.icon(
-                    onPressed: () => _recordOrder(visitId),
+                    onPressed: () => _showOrderOptions(visit),
                     icon: const Icon(Icons.shopping_cart, size: 18),
                     label: const Text('Order'),
                   ),
@@ -595,7 +741,7 @@ class _VisitsScreenState extends ConsumerState<VisitsScreen> {
                 ],
                 if (status == 'COMPLETED') ...[
                   OutlinedButton.icon(
-                    onPressed: () => _recordOrder(visitId),
+                    onPressed: () => _showOrderOptions(visit),
                     icon: const Icon(Icons.shopping_cart, size: 18),
                     label: const Text('Order'),
                   ),
