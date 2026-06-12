@@ -3,8 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../auth/auth_controller.dart';
 
-/// Daily Call Report: summarises today's visits (doctor/chemist split,
-/// POB, samples) and submits the day for manager approval.
+/// Daily Report (DCR): summarises today's visits — order bookings,
+/// samples/promo given, and the doctor/chemist split when contacts are
+/// classified — and submits the day for manager approval. Also shows the
+/// computed TA/DA allowance and the salesperson's sample stock balance.
 class DcrScreen extends ConsumerStatefulWidget {
   const DcrScreen({super.key});
 
@@ -16,6 +18,8 @@ class _DcrScreenState extends ConsumerState<DcrScreen> {
   bool _loading = true;
   Map<String, dynamic>? _dcr;
   List<Map<String, dynamic>> _history = [];
+  Map<String, dynamic>? _allowance;
+  List<Map<String, dynamic>> _samples = [];
   String _workType = 'FIELD_WORK';
   final _remarksCtl = TextEditingController();
 
@@ -39,6 +43,16 @@ class _DcrScreenState extends ConsumerState<DcrScreen> {
         api.buildDcr(),
         api.getMyDcrs(),
       ]);
+      Map<String, dynamic>? allowance;
+      List<Map<String, dynamic>> samples = [];
+      try {
+        allowance = await api.getMyAllowance();
+        samples = (await api.getMySampleBalance())
+            .whereType<Map<String, dynamic>>()
+            .toList();
+      } catch (_) {
+        // allowance/samples are optional extras — never block the DCR
+      }
       if (mounted) {
         setState(() {
           _dcr = results[0] as Map<String, dynamic>;
@@ -46,6 +60,8 @@ class _DcrScreenState extends ConsumerState<DcrScreen> {
           _history = (results[1] as List)
               .whereType<Map<String, dynamic>>()
               .toList();
+          _allowance = allowance;
+          _samples = samples;
         });
       }
     } catch (e) {
@@ -68,6 +84,16 @@ class _DcrScreenState extends ConsumerState<DcrScreen> {
     }
   }
 
+  Future<void> _claimAllowance() async {
+    try {
+      await ref.read(apiClientProvider).claimAllowance();
+      _toast('Allowance claimed — expense recorded');
+      await _load();
+    } catch (e) {
+      _toast('Claim failed: $e');
+    }
+  }
+
   void _toast(String msg) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
@@ -83,7 +109,7 @@ class _DcrScreenState extends ConsumerState<DcrScreen> {
     final status = _dcr?['status']?.toString() ?? 'DRAFT';
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Daily Call Report'),
+        title: const Text('Daily Report'),
         actions: [
           IconButton(icon: const Icon(Icons.refresh), onPressed: _load),
         ],
@@ -123,18 +149,101 @@ class _DcrScreenState extends ConsumerState<DcrScreen> {
                 Card(
                   child: Padding(
                     padding: const EdgeInsets.all(16),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceAround,
+                    child: Column(
                       children: [
-                        _Metric('Doctors', '${_dcr?['doctorsVisited'] ?? 0}'),
-                        _Metric('Chemists', '${_dcr?['chemistsVisited'] ?? 0}'),
-                        _Metric('Others', '${_dcr?['othersVisited'] ?? 0}'),
-                        _Metric('POB ₹', '${_dcr?['totalPob'] ?? 0}'),
-                        _Metric('Samples', '${_dcr?['samplesGiven'] ?? 0}'),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceAround,
+                          children: [
+                            _Metric('Visits', '${_dcr?['totalVisits'] ?? 0}'),
+                            _Metric('Orders ₹', '${_dcr?['totalPob'] ?? 0}'),
+                            _Metric(
+                                'Samples', '${_dcr?['samplesGiven'] ?? 0}'),
+                          ],
+                        ),
+                        if (((_dcr?['doctorsVisited'] as num?) ?? 0) > 0 ||
+                            ((_dcr?['chemistsVisited'] as num?) ?? 0) > 0) ...[
+                          const Divider(height: 24),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceAround,
+                            children: [
+                              _Metric('Doctors',
+                                  '${_dcr?['doctorsVisited'] ?? 0}'),
+                              _Metric('Chemists',
+                                  '${_dcr?['chemistsVisited'] ?? 0}'),
+                              _Metric('Others',
+                                  '${_dcr?['othersVisited'] ?? 0}'),
+                            ],
+                          ),
+                        ],
                       ],
                     ),
                   ),
                 ),
+                if (_allowance != null &&
+                    _allowance!['configured'] == true) ...[
+                  const SizedBox(height: 12),
+                  Card(
+                    child: ListTile(
+                      leading: const Icon(Icons.directions_car_outlined),
+                      title: Text(
+                          'TA/DA: ₹${_allowance!['totalAmount'] ?? 0}'),
+                      subtitle: Text(
+                          '${_allowance!['distanceKm'] ?? 0} km travelled'
+                          ' • TA ₹${_allowance!['taAmount'] ?? 0}'
+                          ' + DA ₹${_allowance!['daAmount'] ?? 0}'),
+                      trailing: _allowance!['claimed'] == true
+                          ? const Chip(
+                              label: Text('CLAIMED',
+                                  style: TextStyle(fontSize: 11)),
+                              visualDensity: VisualDensity.compact,
+                            )
+                          : FilledButton.tonal(
+                              onPressed: _claimAllowance,
+                              child: const Text('Claim'),
+                            ),
+                    ),
+                  ),
+                ],
+                if (_samples.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('My sample / promo stock',
+                              style:
+                                  Theme.of(context).textTheme.titleSmall),
+                          const SizedBox(height: 4),
+                          ..._samples.map((r) {
+                            final bal = (r['balance'] as num?) ?? 0;
+                            return Padding(
+                              padding:
+                                  const EdgeInsets.symmetric(vertical: 2),
+                              child: Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Expanded(
+                                      child: Text(
+                                          r['productName']?.toString() ??
+                                              '')),
+                                  Text('$bal left',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w600,
+                                        color:
+                                            bal < 0 ? Colors.red : null,
+                                      )),
+                                ],
+                              ),
+                            );
+                          }),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 16),
                 if (_submittable) ...[
                   DropdownButtonFormField<String>(

@@ -578,6 +578,34 @@ class FieldApiClient {
     return _unwrapList(response.data);
   }
 
+  // ── Allowance + samples (all verticals) ───────────────────────
+
+  Future<Map<String, dynamic>> getMyAllowance({String? date}) async {
+    final response = await _dio.get<Map<String, dynamic>>(
+      '/api/v1/field-sales/allowance/me',
+      queryParameters: {if (date != null) 'date': date},
+      options: _authOptions(),
+    );
+    return _unwrap(response.data);
+  }
+
+  Future<Map<String, dynamic>> claimAllowance({String? date}) async {
+    final response = await _dio.post<Map<String, dynamic>>(
+      '/api/v1/field-sales/allowance/claim',
+      data: {if (date != null) 'date': date},
+      options: _authOptions(),
+    );
+    return _unwrap(response.data);
+  }
+
+  Future<List<dynamic>> getMySampleBalance() async {
+    final response = await _dio.get<Map<String, dynamic>>(
+      '/api/v1/field-sales/samples/balance/me',
+      options: _authOptions(),
+    );
+    return _unwrapList(response.data);
+  }
+
   // ── Location tracking ─────────────────────────────────────────
 
   /// Sends a batch of GPS breadcrumb pings. Each ping: latitude,

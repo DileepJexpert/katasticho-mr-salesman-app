@@ -53,7 +53,7 @@ class _HomeShellState extends ConsumerState<HomeShell> {
         ),
         actions: [
           IconButton(
-            tooltip: 'Tour Plan (MTP)',
+            tooltip: 'Tour Plan',
             onPressed: () {
               Navigator.of(context).push(
                 MaterialPageRoute<void>(
@@ -64,7 +64,7 @@ class _HomeShellState extends ConsumerState<HomeShell> {
             icon: const Icon(Icons.calendar_month),
           ),
           IconButton(
-            tooltip: 'Daily Call Report',
+            tooltip: 'Daily Report',
             onPressed: () {
               Navigator.of(context).push(
                 MaterialPageRoute<void>(

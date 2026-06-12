@@ -105,7 +105,7 @@ class _TourPlanScreenState extends ConsumerState<TourPlanScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Tour Plans (MTP)')),
+      appBar: AppBar(title: const Text('Tour Plans')),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _createPlan,
         icon: const Icon(Icons.add),
