@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/location/location_service.dart';
 import '../auth/auth_controller.dart';
 import '../shared/field_widgets.dart';
 
@@ -17,7 +18,9 @@ class _TodayDashboardScreenState extends ConsumerState<TodayDashboardScreen> {
   Map<String, dynamic> _dashboard = {};
   List<dynamic> _todayExecutions = [];
   List<dynamic> _targets = [];
+  Map<String, dynamic>? _attendance;
   String? _error;
+  final _locationService = LocationService();
 
   @override
   void initState() {
@@ -52,6 +55,13 @@ class _TodayDashboardScreenState extends ConsumerState<TodayDashboardScreen> {
         api.getMyTodayExecutions(),
         api.getMyTargets(),
       ]);
+      Map<String, dynamic>? attendance;
+      try {
+        attendance = await api.getAttendanceToday();
+      } catch (_) {
+        // attendance is optional — never block the dashboard
+      }
+      _attendance = attendance;
 
       if (mounted) {
         setState(() {
@@ -65,6 +75,150 @@ class _TodayDashboardScreenState extends ConsumerState<TodayDashboardScreen> {
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  Future<void> _punch({required bool isIn}) async {
+    FieldLocation? loc;
+    try {
+      loc = await _locationService.currentLocation();
+    } catch (_) {
+      loc = null;
+    }
+    try {
+      final api = ref.read(apiClientProvider);
+      if (isIn) {
+        await api.punchIn(latitude: loc?.latitude, longitude: loc?.longitude);
+      } else {
+        await api.punchOut(latitude: loc?.latitude, longitude: loc?.longitude);
+      }
+      await _loadData();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Punch failed: $e')));
+      }
+    }
+  }
+
+  Future<void> _applyLeave() async {
+    DateTimeRange? range = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime.now().subtract(const Duration(days: 30)),
+      lastDate: DateTime.now().add(const Duration(days: 365)),
+    );
+    if (range == null || !mounted) return;
+
+    String type = 'CASUAL';
+    final reasonCtl = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: const Text('Apply Leave'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              DropdownButtonFormField<String>(
+                value: type,
+                decoration: const InputDecoration(labelText: 'Type'),
+                items: const [
+                  DropdownMenuItem(value: 'CASUAL', child: Text('Casual')),
+                  DropdownMenuItem(value: 'SICK', child: Text('Sick')),
+                  DropdownMenuItem(value: 'EARNED', child: Text('Earned')),
+                  DropdownMenuItem(value: 'UNPAID', child: Text('Unpaid')),
+                ],
+                onChanged: (v) => setDialogState(() => type = v ?? 'CASUAL'),
+              ),
+              TextField(
+                controller: reasonCtl,
+                decoration: const InputDecoration(labelText: 'Reason'),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Cancel')),
+            FilledButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Apply')),
+          ],
+        ),
+      ),
+    );
+    if (ok != true) return;
+
+    try {
+      await ref.read(apiClientProvider).applyLeave(
+            fromDate: range.start.toIso8601String().split('T')[0],
+            toDate: range.end.toIso8601String().split('T')[0],
+            leaveType: type,
+            reason: reasonCtl.text.trim(),
+          );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Leave requested — pending approval')));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Leave request failed: $e')));
+      }
+    }
+  }
+
+  String _punchTime(String? iso) {
+    final t = iso != null ? DateTime.tryParse(iso)?.toLocal() : null;
+    if (t == null) return '--:--';
+    return '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+  }
+
+  Widget _attendanceCard() {
+    final punchedIn = _attendance?['punchInAt'] != null;
+    final punchedOut = _attendance?['punchOutAt'] != null;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        child: Row(
+          children: [
+            Icon(
+              punchedOut
+                  ? Icons.task_alt
+                  : punchedIn
+                      ? Icons.timer_outlined
+                      : Icons.badge_outlined,
+              color: punchedIn && !punchedOut ? Colors.green : null,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                punchedOut
+                    ? 'Day done · in ${_punchTime(_attendance?['punchInAt']?.toString())}'
+                        ' / out ${_punchTime(_attendance?['punchOutAt']?.toString())}'
+                    : punchedIn
+                        ? 'On duty since ${_punchTime(_attendance?['punchInAt']?.toString())}'
+                        : 'Not punched in yet',
+              ),
+            ),
+            if (!punchedIn)
+              FilledButton(
+                onPressed: () => _punch(isIn: true),
+                child: const Text('Punch In'),
+              )
+            else if (!punchedOut)
+              OutlinedButton(
+                onPressed: () => _punch(isIn: false),
+                child: const Text('Punch Out'),
+              ),
+            IconButton(
+              tooltip: 'Apply leave',
+              icon: const Icon(Icons.beach_access_outlined),
+              onPressed: _applyLeave,
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -131,6 +285,9 @@ class _TodayDashboardScreenState extends ConsumerState<TodayDashboardScreen> {
             ),
             const SizedBox(height: 12),
           ],
+
+          _attendanceCard(),
+          const SizedBox(height: 12),
 
           Row(
             children: [

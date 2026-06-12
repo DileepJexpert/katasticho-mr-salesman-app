@@ -578,6 +578,74 @@ class FieldApiClient {
     return _unwrapList(response.data);
   }
 
+  // ── Attendance + leave ────────────────────────────────────────
+
+  Future<Map<String, dynamic>?> getAttendanceToday() async {
+    final response = await _dio.get<Map<String, dynamic>>(
+      '/api/v1/attendance/today',
+      options: _authOptions(),
+    );
+    final data = response.data?['data'];
+    return data is Map ? data.cast<String, dynamic>() : null;
+  }
+
+  Future<Map<String, dynamic>> punchIn({
+    double? latitude,
+    double? longitude,
+  }) async {
+    final response = await _dio.post<Map<String, dynamic>>(
+      '/api/v1/attendance/punch-in',
+      data: {
+        if (latitude != null) 'latitude': latitude,
+        if (longitude != null) 'longitude': longitude,
+      },
+      options: _authOptions(),
+    );
+    return _unwrap(response.data);
+  }
+
+  Future<Map<String, dynamic>> punchOut({
+    double? latitude,
+    double? longitude,
+  }) async {
+    final response = await _dio.post<Map<String, dynamic>>(
+      '/api/v1/attendance/punch-out',
+      data: {
+        if (latitude != null) 'latitude': latitude,
+        if (longitude != null) 'longitude': longitude,
+      },
+      options: _authOptions(),
+    );
+    return _unwrap(response.data);
+  }
+
+  Future<Map<String, dynamic>> applyLeave({
+    required String fromDate,
+    required String toDate,
+    required String leaveType,
+    String? reason,
+  }) async {
+    final response = await _dio.post<Map<String, dynamic>>(
+      '/api/v1/attendance/leave',
+      data: {
+        'fromDate': fromDate,
+        'toDate': toDate,
+        'leaveType': leaveType,
+        if (reason != null && reason.isNotEmpty) 'reason': reason,
+      },
+      options: _authOptions(),
+    );
+    return _unwrap(response.data);
+  }
+
+  Future<List<dynamic>> getMyLeaves() async {
+    final response = await _dio.get<Map<String, dynamic>>(
+      '/api/v1/attendance/leave/me',
+      options: _authOptions(),
+    );
+    return _unwrapList(response.data);
+  }
+
   // ── Allowance + samples (all verticals) ───────────────────────
 
   Future<Map<String, dynamic>> getMyAllowance({String? date}) async {
