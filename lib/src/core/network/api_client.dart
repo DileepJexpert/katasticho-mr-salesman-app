@@ -464,6 +464,21 @@ class FieldApiClient {
     return _unwrapList(response.data);
   }
 
+  // ── Location tracking ─────────────────────────────────────────
+
+  /// Sends a batch of GPS breadcrumb pings. Each ping: latitude,
+  /// longitude, accuracyM, recordedAt (ISO-8601), routeExecutionId.
+  Future<Map<String, dynamic>> sendLocationPings(
+    List<Map<String, dynamic>> pings,
+  ) async {
+    final response = await _dio.post<Map<String, dynamic>>(
+      '/api/v1/field-sales/locations/ping',
+      data: {'pings': pings},
+      options: _authOptions(),
+    );
+    return _unwrap(response.data);
+  }
+
   // ── Offline replay ────────────────────────────────────────────
 
   /// Generic authenticated POST used by the offline queue to replay

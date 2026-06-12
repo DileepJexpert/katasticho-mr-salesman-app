@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/location/location_ping_tracker.dart';
 import '../../core/location/location_service.dart';
 import '../../core/storage/offline_queue_provider.dart';
 import '../auth/auth_controller.dart';
@@ -61,11 +62,25 @@ class _VisitsScreenState extends ConsumerState<VisitsScreen> {
           _activeExecution = active;
           _visits = visits;
         });
+        _syncPingTracker(active);
       }
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
     } finally {
       if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  /// Keeps the GPS breadcrumb tracker aligned with the route state:
+  /// pings flow only while a route execution is IN_PROGRESS.
+  void _syncPingTracker(Map<String, dynamic>? execution) {
+    final tracker = ref.read(locationPingTrackerProvider);
+    final execId = execution?['id']?.toString();
+    final status = execution?['status']?.toString();
+    if (execId != null && status == 'IN_PROGRESS') {
+      tracker.start(execId);
+    } else {
+      tracker.stop();
     }
   }
 
@@ -106,10 +121,18 @@ class _VisitsScreenState extends ConsumerState<VisitsScreen> {
     final longitude = loc?.longitude ?? 0.0;
 
     try {
-      await ref
+      final visit = await ref
           .read(apiClientProvider)
           .checkIn(visitId, latitude: latitude, longitude: longitude);
       if (loc == null) _showInfo('Location unavailable — using default');
+      if (visit['geoVerified'] == false) {
+        final distance =
+            (visit['geoDistanceM'] as num?)?.round().toString() ?? '?';
+        _showInfo(
+          'Note: you are ${distance}m away from this customer\'s '
+          'registered location',
+        );
+      }
       _showSuccess('Checked in');
       await _loadData();
     } catch (e) {
