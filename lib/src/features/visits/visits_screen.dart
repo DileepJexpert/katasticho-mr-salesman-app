@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/location/location_ping_tracker.dart';
 import '../../core/location/location_service.dart';
@@ -530,6 +531,16 @@ class _VisitsScreenState extends ConsumerState<VisitsScreen> {
     );
   }
 
+  /// E-detailing: pick and open brochures/visual aids during the visit;
+  /// the selection is logged against the visit for coverage analytics.
+  Future<void> _showAids(String visitId) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) => _AidsSheet(visitId: visitId),
+    );
+  }
+
   void _showInfo(String msg) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
@@ -797,6 +808,11 @@ class _VisitsScreenState extends ConsumerState<VisitsScreen> {
                     icon: const Icon(Icons.medication, size: 18),
                     label: const Text('Detail'),
                   ),
+                  OutlinedButton.icon(
+                    onPressed: () => _showAids(visitId),
+                    icon: const Icon(Icons.auto_stories, size: 18),
+                    label: const Text('Aids'),
+                  ),
                 ],
                 if (status == 'COMPLETED') ...[
                   OutlinedButton.icon(
@@ -974,6 +990,133 @@ class _DetailingSheetState extends ConsumerState<_DetailingSheet> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Bottom sheet: active detail aids with open-link + shown checkboxes.
+class _AidsSheet extends ConsumerStatefulWidget {
+  const _AidsSheet({required this.visitId});
+
+  final String visitId;
+
+  @override
+  ConsumerState<_AidsSheet> createState() => _AidsSheetState();
+}
+
+class _AidsSheetState extends ConsumerState<_AidsSheet> {
+  List<Map<String, dynamic>> _aids = [];
+  final Set<String> _shown = {};
+  bool _loading = true;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final api = ref.read(apiClientProvider);
+      final aids = await api.getDetailAids();
+      final log = await api.getVisitDetailAids(widget.visitId);
+      if (mounted) {
+        setState(() {
+          _aids = aids.whereType<Map<String, dynamic>>().toList();
+          _shown.addAll(log
+              .whereType<Map>()
+              .map((e) => e['detailAidId']?.toString() ?? '')
+              .where((id) => id.isNotEmpty));
+          _loading = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _open(Map<String, dynamic> aid) async {
+    final url = aid['mediaUrl']?.toString();
+    if (url == null || url.isEmpty) return;
+    setState(() => _shown.add(aid['id'].toString()));
+    await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+  }
+
+  Future<void> _save() async {
+    setState(() => _saving = true);
+    try {
+      await ref
+          .read(apiClientProvider)
+          .logVisitDetailAids(widget.visitId, _shown.toList());
+      if (mounted) Navigator.of(context).pop();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to save aids: ' + e.toString())),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: _loading
+            ? const SizedBox(
+                height: 120,
+                child: Center(child: CircularProgressIndicator()))
+            : Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Detail aids',
+                      style: Theme.of(context).textTheme.titleMedium),
+                  const SizedBox(height: 4),
+                  Text('Open to present; tick what you showed.',
+                      style: Theme.of(context).textTheme.bodySmall),
+                  const SizedBox(height: 8),
+                  if (_aids.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.all(16),
+                      child: Text('No detail aids published yet — ask your '
+                          'admin to add brochures in the ERP.'),
+                    ),
+                  ..._aids.map((aid) {
+                    final id = aid['id'].toString();
+                    return CheckboxListTile(
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      value: _shown.contains(id),
+                      onChanged: (v) => setState(() =>
+                          v == true ? _shown.add(id) : _shown.remove(id)),
+                      title: Text(aid['name']?.toString() ?? ''),
+                      subtitle: aid['productName'] != null
+                          ? Text(aid['productName'].toString())
+                          : null,
+                      secondary: IconButton(
+                        icon: const Icon(Icons.open_in_new),
+                        tooltip: 'Open',
+                        onPressed: () => _open(aid),
+                      ),
+                    );
+                  }),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      onPressed: _saving || _aids.isEmpty ? null : _save,
+                      icon: const Icon(Icons.save),
+                      label: Text(_saving ? 'Saving…' : 'Save'),
+                    ),
+                  ),
+                ],
+              ),
       ),
     );
   }

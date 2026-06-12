@@ -578,6 +578,36 @@ class FieldApiClient {
     return _unwrapList(response.data);
   }
 
+  // ── Detail aids (e-detailing) ─────────────────────────────────
+
+  Future<List<dynamic>> getDetailAids() async {
+    final response = await _dio.get<Map<String, dynamic>>(
+      '/api/v1/mr/detail-aids',
+      options: _authOptions(),
+    );
+    return _unwrapList(response.data);
+  }
+
+  Future<List<dynamic>> getVisitDetailAids(String visitId) async {
+    final response = await _dio.get<Map<String, dynamic>>(
+      '/api/v1/mr/visits/$visitId/detail-aids',
+      options: _authOptions(),
+    );
+    return _unwrapList(response.data);
+  }
+
+  Future<List<dynamic>> logVisitDetailAids(
+    String visitId,
+    List<String> aidIds,
+  ) async {
+    final response = await _dio.put<Map<String, dynamic>>(
+      '/api/v1/mr/visits/$visitId/detail-aids',
+      data: {'aidIds': aidIds},
+      options: _authOptions(),
+    );
+    return _unwrapList(response.data);
+  }
+
   // ── Attendance + leave ────────────────────────────────────────
 
   Future<Map<String, dynamic>?> getAttendanceToday() async {
