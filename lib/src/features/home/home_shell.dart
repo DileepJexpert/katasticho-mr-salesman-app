@@ -6,6 +6,8 @@ import '../collections/collections_screen.dart';
 import '../dashboard/today_dashboard_screen.dart';
 import '../dayclose/day_close_screen.dart';
 import '../expenses/expenses_screen.dart';
+import '../mr/dcr_screen.dart';
+import '../mr/tour_plan_screen.dart';
 import '../orders/orders_screen.dart';
 import '../parties/parties_screen.dart';
 import '../sync/sync_screen.dart';
@@ -50,6 +52,28 @@ class _HomeShellState extends ConsumerState<HomeShell> {
           ],
         ),
         actions: [
+          IconButton(
+            tooltip: 'Tour Plan (MTP)',
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const TourPlanScreen(),
+                ),
+              );
+            },
+            icon: const Icon(Icons.calendar_month),
+          ),
+          IconButton(
+            tooltip: 'Daily Call Report',
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const DcrScreen(),
+                ),
+              );
+            },
+            icon: const Icon(Icons.assignment_outlined),
+          ),
           IconButton(
             tooltip: 'Sync',
             onPressed: () {

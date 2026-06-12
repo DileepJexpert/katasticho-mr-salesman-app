@@ -464,6 +464,120 @@ class FieldApiClient {
     return _unwrapList(response.data);
   }
 
+  // ── MR reporting: tour plans + DCR ───────────────────────────
+
+  Future<Map<String, dynamic>> createTourPlan(
+    String planMonth, {
+    String? notes,
+  }) async {
+    final response = await _dio.post<Map<String, dynamic>>(
+      '/api/v1/mr/tour-plans',
+      data: {
+        'planMonth': planMonth,
+        if (notes != null && notes.isNotEmpty) 'notes': notes,
+      },
+      options: _authOptions(),
+    );
+    return _unwrap(response.data);
+  }
+
+  Future<List<dynamic>> getMyTourPlans() async {
+    final response = await _dio.get<Map<String, dynamic>>(
+      '/api/v1/mr/tour-plans/me',
+      options: _authOptions(),
+    );
+    return _unwrapList(response.data);
+  }
+
+  Future<Map<String, dynamic>> getTourPlan(String id) async {
+    final response = await _dio.get<Map<String, dynamic>>(
+      '/api/v1/mr/tour-plans/$id',
+      options: _authOptions(),
+    );
+    return _unwrap(response.data);
+  }
+
+  Future<Map<String, dynamic>> addTourPlanEntry(
+    String planId,
+    Map<String, dynamic> entry,
+  ) async {
+    final response = await _dio.post<Map<String, dynamic>>(
+      '/api/v1/mr/tour-plans/$planId/entries',
+      data: entry,
+      options: _authOptions(),
+    );
+    return _unwrap(response.data);
+  }
+
+  Future<void> removeTourPlanEntry(String entryId) async {
+    await _dio.delete<Map<String, dynamic>>(
+      '/api/v1/mr/tour-plans/entries/$entryId',
+      options: _authOptions(),
+    );
+  }
+
+  Future<Map<String, dynamic>> submitTourPlan(String planId) async {
+    final response = await _dio.post<Map<String, dynamic>>(
+      '/api/v1/mr/tour-plans/$planId/submit',
+      options: _authOptions(),
+    );
+    return _unwrap(response.data);
+  }
+
+  Future<Map<String, dynamic>> buildDcr({String? date}) async {
+    final response = await _dio.post<Map<String, dynamic>>(
+      '/api/v1/mr/dcr/build',
+      data: {if (date != null) 'date': date},
+      options: _authOptions(),
+    );
+    return _unwrap(response.data);
+  }
+
+  Future<Map<String, dynamic>> submitDcr({
+    String? date,
+    String? workType,
+    String? remarks,
+  }) async {
+    final response = await _dio.post<Map<String, dynamic>>(
+      '/api/v1/mr/dcr/submit',
+      data: {
+        if (date != null) 'date': date,
+        if (workType != null) 'workType': workType,
+        if (remarks != null && remarks.isNotEmpty) 'remarks': remarks,
+      },
+      options: _authOptions(),
+    );
+    return _unwrap(response.data);
+  }
+
+  Future<List<dynamic>> getMyDcrs() async {
+    final response = await _dio.get<Map<String, dynamic>>(
+      '/api/v1/mr/dcr/me',
+      options: _authOptions(),
+    );
+    return _unwrapList(response.data);
+  }
+
+  Future<List<dynamic>> logVisitProducts(
+    String visitId,
+    List<Map<String, dynamic>> products,
+  ) async {
+    final response = await _dio.put<Map<String, dynamic>>(
+      '/api/v1/mr/visits/$visitId/products',
+      data: {'products': products},
+      options: _authOptions(),
+    );
+    return _unwrapList(response.data);
+  }
+
+  Future<List<dynamic>> getVisitProducts(String visitId) async {
+    final response = await _dio.get<Map<String, dynamic>>(
+      '/api/v1/mr/visits/$visitId/products',
+      options: _authOptions(),
+    );
+    return _unwrapList(response.data);
+  }
+
   // ── Location tracking ─────────────────────────────────────────
 
   /// Sends a batch of GPS breadcrumb pings. Each ping: latitude,

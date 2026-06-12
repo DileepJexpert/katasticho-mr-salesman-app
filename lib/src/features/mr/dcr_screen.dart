@@ -1,0 +1,213 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../auth/auth_controller.dart';
+
+/// Daily Call Report: summarises today's visits (doctor/chemist split,
+/// POB, samples) and submits the day for manager approval.
+class DcrScreen extends ConsumerStatefulWidget {
+  const DcrScreen({super.key});
+
+  @override
+  ConsumerState<DcrScreen> createState() => _DcrScreenState();
+}
+
+class _DcrScreenState extends ConsumerState<DcrScreen> {
+  bool _loading = true;
+  Map<String, dynamic>? _dcr;
+  List<Map<String, dynamic>> _history = [];
+  String _workType = 'FIELD_WORK';
+  final _remarksCtl = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void dispose() {
+    _remarksCtl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _load() async {
+    setState(() => _loading = true);
+    try {
+      final api = ref.read(apiClientProvider);
+      final results = await Future.wait([
+        api.buildDcr(),
+        api.getMyDcrs(),
+      ]);
+      if (mounted) {
+        setState(() {
+          _dcr = results[0] as Map<String, dynamic>;
+          _workType = _dcr?['workType']?.toString() ?? 'FIELD_WORK';
+          _history = (results[1] as List)
+              .whereType<Map<String, dynamic>>()
+              .toList();
+        });
+      }
+    } catch (e) {
+      _toast('Failed to load DCR: $e');
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _submit() async {
+    try {
+      await ref.read(apiClientProvider).submitDcr(
+            workType: _workType,
+            remarks: _remarksCtl.text.trim(),
+          );
+      _toast('DCR submitted');
+      await _load();
+    } catch (e) {
+      _toast('Submit failed: $e');
+    }
+  }
+
+  void _toast(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
+  bool get _submittable {
+    final status = _dcr?['status']?.toString();
+    return status == 'DRAFT' || status == 'REJECTED';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final status = _dcr?['status']?.toString() ?? 'DRAFT';
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Daily Call Report'),
+        actions: [
+          IconButton(icon: const Icon(Icons.refresh), onPressed: _load),
+        ],
+      ),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text("Today's summary",
+                        style: Theme.of(context).textTheme.titleMedium),
+                    Chip(
+                      label: Text(status,
+                          style: const TextStyle(fontSize: 11)),
+                      visualDensity: VisualDensity.compact,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                if (status == 'REJECTED' &&
+                    _dcr?['rejectionReason'] != null) ...[
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.red.shade50,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text('Rejected: ${_dcr!['rejectionReason']}',
+                        style: TextStyle(color: Colors.red.shade800)),
+                  ),
+                  const SizedBox(height: 8),
+                ],
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceAround,
+                      children: [
+                        _Metric('Doctors', '${_dcr?['doctorsVisited'] ?? 0}'),
+                        _Metric('Chemists', '${_dcr?['chemistsVisited'] ?? 0}'),
+                        _Metric('Others', '${_dcr?['othersVisited'] ?? 0}'),
+                        _Metric('POB ₹', '${_dcr?['totalPob'] ?? 0}'),
+                        _Metric('Samples', '${_dcr?['samplesGiven'] ?? 0}'),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                if (_submittable) ...[
+                  DropdownButtonFormField<String>(
+                    value: _workType,
+                    decoration: const InputDecoration(labelText: 'Work type'),
+                    items: const [
+                      DropdownMenuItem(
+                          value: 'FIELD_WORK', child: Text('Field work')),
+                      DropdownMenuItem(
+                          value: 'MEETING', child: Text('Meeting')),
+                      DropdownMenuItem(value: 'OFFICE', child: Text('Office')),
+                      DropdownMenuItem(value: 'CAMP', child: Text('Camp / CME')),
+                      DropdownMenuItem(value: 'LEAVE', child: Text('Leave')),
+                    ],
+                    onChanged: (v) =>
+                        setState(() => _workType = v ?? 'FIELD_WORK'),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: _remarksCtl,
+                    maxLines: 2,
+                    decoration: const InputDecoration(labelText: 'Remarks'),
+                  ),
+                  const SizedBox(height: 12),
+                  FilledButton.icon(
+                    onPressed: _submit,
+                    icon: const Icon(Icons.send),
+                    label: const Text('Submit DCR'),
+                  ),
+                ],
+                const SizedBox(height: 24),
+                Text('History', style: Theme.of(context).textTheme.titleMedium),
+                const SizedBox(height: 8),
+                ..._history.map((d) => Card(
+                      child: ListTile(
+                        dense: true,
+                        leading: const Icon(Icons.assignment_outlined),
+                        title: Text(
+                            '${d['reportDate']} — ${d['workType'] ?? ''}'),
+                        subtitle: Text(
+                            'Visits ${d['totalVisits']} • POB ₹${d['totalPob']}'
+                            ' • Samples ${d['samplesGiven']}'),
+                        trailing: Text(d['status']?.toString() ?? '',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: switch (d['status']?.toString()) {
+                                'APPROVED' => Colors.green,
+                                'REJECTED' => Colors.red,
+                                'SUBMITTED' => Colors.orange,
+                                _ => Colors.grey,
+                              },
+                            )),
+                      ),
+                    )),
+              ],
+            ),
+    );
+  }
+}
+
+class _Metric extends StatelessWidget {
+  const _Metric(this.label, this.value);
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Text(value, style: Theme.of(context).textTheme.titleLarge),
+        Text(label, style: Theme.of(context).textTheme.bodySmall),
+      ],
+    );
+  }
+}

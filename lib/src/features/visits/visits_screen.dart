@@ -499,6 +499,37 @@ class _VisitsScreenState extends ConsumerState<VisitsScreen> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
+  /// MR detailing sheet: which products were detailed, samples and
+  /// gifts given during this visit. Feeds the day's DCR summary.
+  Future<void> _logDetailing(String visitId) async {
+    List<Map<String, dynamic>> rows = [];
+    try {
+      final existing =
+          await ref.read(apiClientProvider).getVisitProducts(visitId);
+      rows = existing
+          .whereType<Map>()
+          .map((e) => <String, dynamic>{
+                'productName': e['productName']?.toString() ?? '',
+                'sampleQty': (e['sampleQty'] as num?)?.toInt() ?? 0,
+                'giftName': e['giftName']?.toString() ?? '',
+              })
+          .toList();
+    } catch (_) {
+      // start empty when offline / first time
+    }
+    if (!mounted) return;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) => Padding(
+        padding:
+            EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+        child: _DetailingSheet(visitId: visitId, initialRows: rows),
+      ),
+    );
+  }
+
   void _showInfo(String msg) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
@@ -761,6 +792,11 @@ class _VisitsScreenState extends ConsumerState<VisitsScreen> {
                     icon: const Icon(Icons.payments, size: 18),
                     label: const Text('Collect'),
                   ),
+                  OutlinedButton.icon(
+                    onPressed: () => _logDetailing(visitId),
+                    icon: const Icon(Icons.medication, size: 18),
+                    label: const Text('Detail'),
+                  ),
                 ],
                 if (status == 'COMPLETED') ...[
                   OutlinedButton.icon(
@@ -773,8 +809,168 @@ class _VisitsScreenState extends ConsumerState<VisitsScreen> {
                     icon: const Icon(Icons.payments, size: 18),
                     label: const Text('Collect'),
                   ),
+                  OutlinedButton.icon(
+                    onPressed: () => _logDetailing(visitId),
+                    icon: const Icon(Icons.medication, size: 18),
+                    label: const Text('Detail'),
+                  ),
                 ],
               ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Bottom sheet for recording products detailed + samples/gifts on a visit.
+class _DetailingSheet extends ConsumerStatefulWidget {
+  const _DetailingSheet({required this.visitId, required this.initialRows});
+
+  final String visitId;
+  final List<Map<String, dynamic>> initialRows;
+
+  @override
+  ConsumerState<_DetailingSheet> createState() => _DetailingSheetState();
+}
+
+class _DetailingSheetState extends ConsumerState<_DetailingSheet> {
+  late List<Map<String, dynamic>> _rows;
+  final _productCtl = TextEditingController();
+  final _samplesCtl = TextEditingController(text: '0');
+  final _giftCtl = TextEditingController();
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _rows = List.of(widget.initialRows);
+  }
+
+  @override
+  void dispose() {
+    _productCtl.dispose();
+    _samplesCtl.dispose();
+    _giftCtl.dispose();
+    super.dispose();
+  }
+
+  void _addRow() {
+    final name = _productCtl.text.trim();
+    if (name.isEmpty) return;
+    setState(() {
+      _rows.add({
+        'productName': name,
+        'sampleQty': int.tryParse(_samplesCtl.text) ?? 0,
+        'giftName': _giftCtl.text.trim(),
+      });
+      _productCtl.clear();
+      _samplesCtl.text = '0';
+      _giftCtl.clear();
+    });
+  }
+
+  Future<void> _save() async {
+    setState(() => _saving = true);
+    try {
+      await ref.read(apiClientProvider).logVisitProducts(
+            widget.visitId,
+            _rows
+                .map((r) => {
+                      'productName': r['productName'],
+                      'detailed': true,
+                      'sampleQty': r['sampleQty'] ?? 0,
+                      if ((r['giftName'] as String?)?.isNotEmpty ?? false)
+                        'giftName': r['giftName'],
+                      if ((r['giftName'] as String?)?.isNotEmpty ?? false)
+                        'giftQty': 1,
+                    })
+                .toList(),
+          );
+      if (mounted) Navigator.of(context).pop();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to save detailing: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Detailing & Samples',
+                style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 8),
+            ..._rows.asMap().entries.map((entry) => ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.medication_outlined),
+                  title: Text(entry.value['productName']?.toString() ?? ''),
+                  subtitle: Text(
+                      'Samples: ${entry.value['sampleQty'] ?? 0}'
+                      '${(entry.value['giftName'] as String?)?.isNotEmpty ?? false ? " • Gift: ${entry.value['giftName']}" : ""}'),
+                  trailing: IconButton(
+                    icon: const Icon(Icons.delete_outline, size: 20),
+                    onPressed: () =>
+                        setState(() => _rows.removeAt(entry.key)),
+                  ),
+                )),
+            const Divider(),
+            Row(
+              children: [
+                Expanded(
+                  flex: 3,
+                  child: TextField(
+                    controller: _productCtl,
+                    decoration:
+                        const InputDecoration(labelText: 'Product detailed'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: TextField(
+                    controller: _samplesCtl,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(labelText: 'Samples'),
+                  ),
+                ),
+              ],
+            ),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _giftCtl,
+                    decoration:
+                        const InputDecoration(labelText: 'Gift (optional)'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                IconButton.filledTonal(
+                  onPressed: _addRow,
+                  icon: const Icon(Icons.add),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: _saving ? null : _save,
+                icon: const Icon(Icons.save),
+                label: Text(_saving ? 'Saving…' : 'Save'),
+              ),
             ),
           ],
         ),
