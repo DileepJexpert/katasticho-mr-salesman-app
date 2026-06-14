@@ -1054,7 +1054,7 @@ class _AidsSheetState extends ConsumerState<_AidsSheet> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to save aids: ' + e.toString())),
+          SnackBar(content: Text('Failed to save aids: $e')),
         );
       }
     } finally {

@@ -119,7 +119,7 @@ class _TodayDashboardScreenState extends ConsumerState<TodayDashboardScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               DropdownButtonFormField<String>(
-                value: type,
+                initialValue: type,
                 decoration: const InputDecoration(labelText: 'Type'),
                 items: const [
                   DropdownMenuItem(value: 'CASUAL', child: Text('Casual')),

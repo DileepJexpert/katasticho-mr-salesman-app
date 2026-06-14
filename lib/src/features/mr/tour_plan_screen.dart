@@ -216,7 +216,7 @@ class _TourPlanDetailScreenState extends ConsumerState<TourPlanDetailScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               DropdownButtonFormField<String>(
-                value: activity,
+                initialValue: activity,
                 decoration: const InputDecoration(labelText: 'Activity'),
                 items: const [
                   DropdownMenuItem(
@@ -382,7 +382,7 @@ class _StatusChip extends StatelessWidget {
     };
     return Chip(
       label: Text(status, style: const TextStyle(fontSize: 11)),
-      backgroundColor: color.withOpacity(0.15),
+      backgroundColor: color.withValues(alpha: 0.15),
       side: BorderSide(color: color),
       visualDensity: VisualDensity.compact,
     );

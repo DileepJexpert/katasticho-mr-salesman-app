@@ -300,7 +300,7 @@ class _DcrScreenState extends ConsumerState<DcrScreen> {
                 const SizedBox(height: 16),
                 if (_submittable) ...[
                   DropdownButtonFormField<String>(
-                    value: _workType,
+                    initialValue: _workType,
                     decoration: const InputDecoration(labelText: 'Work type'),
                     items: const [
                       DropdownMenuItem(

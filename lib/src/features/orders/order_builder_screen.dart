@@ -39,8 +39,7 @@ class _CartLine {
     this.taxGroupId,
     this.hsnCode,
     required this.rate,
-    this.quantity = 1,
-  }) : rateCtl = TextEditingController(text: _trimZeros(rate));
+  }) : quantity = 1, rateCtl = TextEditingController(text: _trimZeros(rate));
 
   final String itemId;
   final String name;
