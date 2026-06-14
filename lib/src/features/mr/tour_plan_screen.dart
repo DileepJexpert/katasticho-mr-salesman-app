@@ -48,22 +48,22 @@ class _TourPlanScreenState extends ConsumerState<TourPlanScreen> {
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDialogState) => AlertDialog(
           title: const Text('New Tour Plan'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              RadioListTile<DateTime>(
-                title: Text(_monthLabel(thisMonth)),
-                value: thisMonth,
-                groupValue: selected,
-                onChanged: (v) => setDialogState(() => selected = v!),
-              ),
-              RadioListTile<DateTime>(
-                title: Text(_monthLabel(nextMonth)),
-                value: nextMonth,
-                groupValue: selected,
-                onChanged: (v) => setDialogState(() => selected = v!),
-              ),
-            ],
+          content: RadioGroup<DateTime>(
+            groupValue: selected,
+            onChanged: (v) => setDialogState(() => selected = v!),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                RadioListTile<DateTime>(
+                  title: Text(_monthLabel(thisMonth)),
+                  value: thisMonth,
+                ),
+                RadioListTile<DateTime>(
+                  title: Text(_monthLabel(nextMonth)),
+                  value: nextMonth,
+                ),
+              ],
+            ),
           ),
           actions: [
             TextButton(
