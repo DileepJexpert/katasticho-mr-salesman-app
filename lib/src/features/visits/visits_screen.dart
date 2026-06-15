@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../app/theme.dart';
 import '../../core/location/location_ping_tracker.dart';
 import '../../core/location/location_service.dart';
 import '../../core/storage/offline_queue_provider.dart';
@@ -563,109 +564,177 @@ class _VisitsScreenState extends ConsumerState<VisitsScreen> {
       );
     }
 
-    final execStatus = _activeExecution?['status']?.toString() ?? 'NONE';
+    return Column(
+      children: [
+        // Compact sticky header (route status + progress + action).
+        _buildRouteHeader(theme),
+        const Divider(height: 1),
+        Expanded(
+          child: RefreshIndicator(
+            onRefresh: _loadData,
+            child: _buildVisitsBody(theme),
+          ),
+        ),
+      ],
+    );
+  }
 
-    return RefreshIndicator(
-      onRefresh: _loadData,
-      child: PageScaffold(
-        title: 'Visits',
-        subtitle: 'Geo-verified check-ins. GPS captured on every check-in/out.',
+  /// Thin pinned bar at the top: route name + status + "done/total" progress
+  /// + a start/complete action. Replaces the old route-status card.
+  Widget _buildRouteHeader(ThemeData theme) {
+    if (_activeExecution == null) {
+      return const StatusStrip(
+        icon: Icons.event_busy,
+        text: 'No route execution for today',
+        color: FieldUi.muted,
+      );
+    }
+
+    final execStatus = _activeExecution!['status']?.toString() ?? 'NONE';
+    final routeName =
+        _activeExecution!['routeName']?.toString() ?? 'Today\'s Route';
+    final total = _visits.length;
+    final done = _visits
+        .where((v) => v['status']?.toString() == 'COMPLETED')
+        .length;
+
+    Color statusColor;
+    switch (execStatus) {
+      case 'IN_PROGRESS':
+        statusColor = Colors.orange;
+      case 'COMPLETED':
+        statusColor = Colors.green;
+      default:
+        statusColor = const Color(0xFF2563EB);
+    }
+
+    Widget? action;
+    if (execStatus == 'PLANNED') {
+      action = FilledButton(
+        onPressed: _startRoute,
+        style: FilledButton.styleFrom(
+          minimumSize: const Size(0, 36),
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+        ),
+        child: const Text('Start'),
+      );
+    } else if (execStatus == 'IN_PROGRESS') {
+      action = FilledButton(
+        onPressed: _completeRoute,
+        style: FilledButton.styleFrom(
+          minimumSize: const Size(0, 36),
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+        ),
+        child: const Text('Complete'),
+      );
+    }
+
+    return Container(
+      color: Colors.white,
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+      child: Row(
         children: [
-          if (_error != null) ...[
-            Card(
-              color: Colors.red.shade50,
-              child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: Text(
-                  _error!,
-                  style: TextStyle(color: Colors.red.shade700),
-                ),
-              ),
+          Container(
+            width: 8,
+            height: 8,
+            margin: const EdgeInsets.only(right: 10),
+            decoration: BoxDecoration(
+              color: statusColor,
+              shape: BoxShape.circle,
             ),
-            const SizedBox(height: 12),
-          ],
-
-          // Route status bar
-          if (_activeExecution != null) ...[
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            _activeExecution!['routeName']?.toString() ??
-                                'Today\'s Route',
-                            style: theme.textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            'Status: ${execStatus.replaceAll('_', ' ')}',
-                            style: theme.textTheme.bodySmall,
-                          ),
-                        ],
-                      ),
-                    ),
-                    if (execStatus == 'PLANNED')
-                      FilledButton(
-                        onPressed: _startRoute,
-                        child: const Text('Start'),
-                      ),
-                    if (execStatus == 'IN_PROGRESS')
-                      FilledButton(
-                        onPressed: _completeRoute,
-                        child: const Text('Complete'),
-                      ),
-                  ],
+          ),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  routeName,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
-              ),
-            ),
-            const SizedBox(height: 12),
-          ] else ...[
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: Row(
-                  children: [
-                    Icon(Icons.event_busy, color: Colors.grey.shade400),
-                    const SizedBox(width: 10),
-                    const Expanded(
-                      child: Text('No route execution for today.'),
-                    ),
-                  ],
+                const SizedBox(height: 1),
+                Text(
+                  '${execStatus.replaceAll('_', ' ')} · $done/$total done',
+                  style: theme.textTheme.bodySmall
+                      ?.copyWith(color: FieldUi.muted),
                 ),
-              ),
+              ],
             ),
-            const SizedBox(height: 12),
-          ],
-
-          // Visits list
-          if (_visits.isEmpty && _activeExecution != null)
-            const Card(
-              child: Padding(
-                padding: EdgeInsets.all(14),
-                child: Text('No visits in this route.'),
-              ),
-            )
-          else
-            ..._visits.map((visit) => _buildVisitCard(visit, theme)),
+          ),
+          if (action != null) ...[const SizedBox(width: 8), action],
         ],
       ),
     );
   }
 
-  Widget _buildVisitCard(Map<String, dynamic> visit, ThemeData theme) {
+  Widget _buildVisitsBody(ThemeData theme) {
+    final children = <Widget>[];
+
+    if (_error != null) {
+      children.add(
+        StatusStrip(
+          icon: Icons.error_outline,
+          text: _error!,
+          color: Colors.red,
+        ),
+      );
+      children.add(const SizedBox(height: 12));
+    }
+
+    if (_activeExecution == null) {
+      children.add(_emptyHint('No active route — pull to refresh.'));
+    } else if (_visits.isEmpty) {
+      children.add(_emptyHint('No visits in this route.'));
+    } else {
+      children.add(const SectionLabel('Visits'));
+      children.add(
+        FlatList(
+          children: [
+            for (var i = 0; i < _visits.length; i++)
+              _buildVisitRow(_visits[i], theme, isLast: i == _visits.length - 1),
+          ],
+        ),
+      );
+    }
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 24),
+      children: children,
+    );
+  }
+
+  Widget _emptyHint(String text) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 32),
+      child: Center(
+        child: Text(
+          text,
+          style: const TextStyle(color: FieldUi.muted),
+        ),
+      ),
+    );
+  }
+
+  /// One flat timeline row per visit: a status dot/number on the left,
+  /// dealer name as title, area/status/time as subtitle, a single primary
+  /// action as the trailing widget, and the remaining actions in an overflow
+  /// menu.
+  Widget _buildVisitRow(
+    Map<String, dynamic> visit,
+    ThemeData theme, {
+    required bool isLast,
+  }) {
     final visitId = visit['id']?.toString() ?? '';
     final status = visit['status']?.toString() ?? 'PLANNED';
     final contactName =
         visit['contactName']?.toString() ??
         visit['contactId']?.toString() ??
         'Customer';
+    final area = visit['area']?.toString() ?? visit['contactArea']?.toString();
     final seq =
         (visit['sequence'] as num?)?.toInt() ??
         (visit['sequenceNumber'] as num?)?.toInt();
@@ -688,155 +757,140 @@ class _VisitsScreenState extends ConsumerState<VisitsScreen> {
         statusColor = Colors.red;
         statusLabel = 'Skipped';
       default:
-        statusColor = Colors.blue;
+        statusColor = const Color(0xFF2563EB);
         statusLabel = 'Planned';
     }
 
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                if (seq != null) ...[
-                  CircleAvatar(
-                    radius: 14,
-                    backgroundColor: statusColor.withValues(alpha: 0.15),
-                    child: Text(
-                      '$seq',
-                      style: TextStyle(
-                        color: statusColor,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                ],
-                Expanded(
-                  child: Text(
-                    contactName,
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-                Chip(
-                  label: Text(
-                    statusLabel,
-                    style: TextStyle(
-                      color: statusColor,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  backgroundColor: statusColor.withValues(alpha: 0.1),
-                  side: BorderSide.none,
-                ),
-              ],
-            ),
+    // Compose a compact subtitle: area · status · time · order/collection.
+    final parts = <String>[];
+    if (area != null && area.isNotEmpty) parts.add(area);
+    parts.add(statusLabel);
+    if (checkInTime != null) parts.add('In $checkInTime');
+    if (checkOutTime != null) parts.add('Out $checkOutTime');
+    if (orderValue != null && orderValue > 0) {
+      parts.add('Order ₹${orderValue.toStringAsFixed(0)}');
+    }
+    if (collectionAmount != null && collectionAmount > 0) {
+      parts.add('Coll ₹${collectionAmount.toStringAsFixed(0)}');
+    }
+    if (status == 'SKIPPED' && skipReason != null && skipReason.isNotEmpty) {
+      parts.add('Reason: $skipReason');
+    }
 
-            if (checkInTime != null) ...[
-              const SizedBox(height: 6),
-              Text('Check-in: $checkInTime', style: theme.textTheme.bodySmall),
-            ],
-            if (checkOutTime != null)
-              Text(
-                'Check-out: $checkOutTime',
-                style: theme.textTheme.bodySmall,
-              ),
-            if (orderValue != null && orderValue > 0) ...[
-              const SizedBox(height: 4),
-              Text(
-                'Order: ₹${orderValue.toStringAsFixed(0)}',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
-            if (collectionAmount != null && collectionAmount > 0)
-              Text(
-                'Collection: ₹${collectionAmount.toStringAsFixed(0)}',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            if (status == 'SKIPPED' && skipReason != null) ...[
-              const SizedBox(height: 4),
-              Text(
-                'Reason: $skipReason',
-                style: theme.textTheme.bodySmall?.copyWith(color: Colors.red),
-              ),
-            ],
+    return FieldRow(
+      divider: !isLast,
+      leading: _statusDot(statusColor, seq),
+      title: contactName,
+      subtitle: parts.join(' · '),
+      trailing: _buildVisitTrailing(visit, visitId, status),
+    );
+  }
 
-            const SizedBox(height: 10),
-            Wrap(
-              spacing: 8,
-              runSpacing: 6,
-              children: [
-                if (status == 'PLANNED') ...[
-                  FilledButton.icon(
-                    onPressed: () => _checkIn(visitId),
-                    icon: const Icon(Icons.location_on, size: 18),
-                    label: const Text('Check In'),
-                  ),
-                  OutlinedButton(
-                    onPressed: () => _skipVisit(visitId),
-                    child: const Text('Skip'),
-                  ),
-                ],
-                if (status == 'IN_PROGRESS') ...[
-                  FilledButton.icon(
-                    onPressed: () => _checkOut(visitId),
-                    icon: const Icon(Icons.logout, size: 18),
-                    label: const Text('Check Out'),
-                  ),
-                  OutlinedButton.icon(
-                    onPressed: () => _showOrderOptions(visit),
-                    icon: const Icon(Icons.shopping_cart, size: 18),
-                    label: const Text('Order'),
-                  ),
-                  OutlinedButton.icon(
-                    onPressed: () => _recordCollection(visitId),
-                    icon: const Icon(Icons.payments, size: 18),
-                    label: const Text('Collect'),
-                  ),
-                  OutlinedButton.icon(
-                    onPressed: () => _logDetailing(visitId),
-                    icon: const Icon(Icons.medication, size: 18),
-                    label: const Text('Detail'),
-                  ),
-                  OutlinedButton.icon(
-                    onPressed: () => _showAids(visitId),
-                    icon: const Icon(Icons.auto_stories, size: 18),
-                    label: const Text('Aids'),
-                  ),
-                ],
-                if (status == 'COMPLETED') ...[
-                  OutlinedButton.icon(
-                    onPressed: () => _showOrderOptions(visit),
-                    icon: const Icon(Icons.shopping_cart, size: 18),
-                    label: const Text('Order'),
-                  ),
-                  OutlinedButton.icon(
-                    onPressed: () => _recordCollection(visitId),
-                    icon: const Icon(Icons.payments, size: 18),
-                    label: const Text('Collect'),
-                  ),
-                  OutlinedButton.icon(
-                    onPressed: () => _logDetailing(visitId),
-                    icon: const Icon(Icons.medication, size: 18),
-                    label: const Text('Detail'),
-                  ),
-                ],
-              ],
-            ),
-          ],
+  Widget _statusDot(Color color, int? seq) {
+    return Container(
+      width: 28,
+      height: 28,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.15),
+        shape: BoxShape.circle,
+      ),
+      child: seq != null
+          ? Text(
+              '$seq',
+              style: TextStyle(
+                color: color,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            )
+          : Icon(Icons.circle, size: 10, color: color),
+    );
+  }
+
+  /// Primary action (Check-in / Check-out depending on state) + overflow menu
+  /// holding all the remaining actions.
+  Widget _buildVisitTrailing(
+    Map<String, dynamic> visit,
+    String visitId,
+    String status,
+  ) {
+    Widget? primary;
+    final overflow = <PopupMenuEntry<String>>[];
+
+    if (status == 'PLANNED') {
+      primary = FilledButton(
+        onPressed: () => _checkIn(visitId),
+        style: FilledButton.styleFrom(
+          minimumSize: const Size(0, 34),
+          padding: const EdgeInsets.symmetric(horizontal: 14),
         ),
+        child: const Text('Check In'),
+      );
+      overflow.add(_menuItem('skip', Icons.block, 'Skip'));
+    } else if (status == 'IN_PROGRESS') {
+      primary = FilledButton(
+        onPressed: () => _checkOut(visitId),
+        style: FilledButton.styleFrom(
+          minimumSize: const Size(0, 34),
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+        ),
+        child: const Text('Check Out'),
+      );
+      overflow.add(_menuItem('order', Icons.shopping_cart, 'Order'));
+      overflow.add(_menuItem('collect', Icons.payments, 'Collect'));
+      overflow.add(_menuItem('detail', Icons.medication, 'Detail'));
+      overflow.add(_menuItem('aids', Icons.auto_stories, 'Aids'));
+    } else if (status == 'COMPLETED') {
+      overflow.add(_menuItem('order', Icons.shopping_cart, 'Order'));
+      overflow.add(_menuItem('collect', Icons.payments, 'Collect'));
+      overflow.add(_menuItem('detail', Icons.medication, 'Detail'));
+    }
+
+    final menu = overflow.isEmpty
+        ? null
+        : PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert, color: FieldUi.muted),
+            tooltip: 'More actions',
+            onSelected: (value) => _onVisitMenu(value, visit, visitId),
+            itemBuilder: (_) => overflow,
+          );
+
+    if (primary == null && menu == null) return const SizedBox.shrink();
+    if (primary == null) return menu!;
+    if (menu == null) return primary;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [primary, menu],
+    );
+  }
+
+  PopupMenuItem<String> _menuItem(String value, IconData icon, String label) {
+    return PopupMenuItem<String>(
+      value: value,
+      child: Row(
+        children: [
+          Icon(icon, size: 18, color: FieldUi.ink),
+          const SizedBox(width: 12),
+          Text(label),
+        ],
       ),
     );
+  }
+
+  void _onVisitMenu(String action, Map<String, dynamic> visit, String visitId) {
+    switch (action) {
+      case 'skip':
+        _skipVisit(visitId);
+      case 'order':
+        _showOrderOptions(visit);
+      case 'collect':
+        _recordCollection(visitId);
+      case 'detail':
+        _logDetailing(visitId);
+      case 'aids':
+        _showAids(visitId);
+    }
   }
 }
 

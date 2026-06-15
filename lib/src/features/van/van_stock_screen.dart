@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../app/theme.dart';
 import '../auth/auth_controller.dart';
 import '../shared/field_widgets.dart';
 
@@ -293,7 +294,6 @@ class _VanStockScreenState extends ConsumerState<VanStockScreen> {
   @override
   Widget build(BuildContext context) {
     final session = ref.watch(authControllerProvider).session;
-    final theme = Theme.of(context);
 
     if (_loading) {
       return const Center(child: CircularProgressIndicator());
@@ -307,178 +307,214 @@ class _VanStockScreenState extends ConsumerState<VanStockScreen> {
       );
     }
 
-    return RefreshIndicator(
-      onRefresh: _loadData,
-      child: PageScaffold(
-        title: 'Van Stock',
-        subtitle: 'Stock on your assigned van, loads and returns.',
-        children: [
-          if (_error != null) ...[
-            Card(
-              color: Colors.red.shade50,
-              child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: Text(
-                  _error!,
-                  style: TextStyle(color: Colors.red.shade700),
-                ),
-              ),
-            ),
-            const SizedBox(height: 12),
-          ],
+    final theme = Theme.of(context);
 
-          if (_vanId == null) ...[
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: Row(
-                  children: [
-                    Icon(Icons.local_shipping, color: Colors.grey.shade400),
-                    const SizedBox(width: 10),
-                    const Expanded(
-                      child: Text(
-                        'No van assigned to you. Ask your admin to set up a '
-                        'field sales assignment with a van.',
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ] else ...[
-            // Action buttons
-            Row(
-              children: [
-                Expanded(
-                  child: FilledButton.icon(
-                    onPressed: _requestLoad,
-                    icon: const Icon(Icons.download, size: 18),
-                    label: const Text('Request Load'),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: _stock.isEmpty ? null : _returnStock,
-                    icon: const Icon(Icons.upload, size: 18),
-                    label: const Text('Return Stock'),
-                  ),
-                ),
+    // No van assigned: flat empty state, no tabs/actions.
+    if (_vanId == null) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Van Stock')),
+        body: RefreshIndicator(
+          onRefresh: _loadData,
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+            children: [
+              if (_error != null) ...[
+                _errorStrip(),
+                const SizedBox(height: FieldUi.gap),
               ],
-            ),
-            const SizedBox(height: 14),
-
-            // Current stock
-            Text(
-              'Current Stock',
-              style: theme.textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w800,
+              StatusStrip(
+                icon: Icons.local_shipping,
+                color: FieldUi.muted,
+                text:
+                    'No van assigned. Ask your admin to set up a field sales '
+                    'assignment with a van.',
               ),
-            ),
-            const SizedBox(height: 8),
-            if (_stock.isEmpty)
-              const Card(
-                child: Padding(
-                  padding: EdgeInsets.all(14),
-                  child: Text('Van is empty. Request a load to begin.'),
-                ),
-              )
-            else
-              ..._stock.map((row) => _buildStockCard(row, theme)),
-            const SizedBox(height: 16),
+            ],
+          ),
+        ),
+      );
+    }
 
-            // Recent transfers
-            Text(
-              'Recent Transfers',
-              style: theme.textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w800,
-              ),
+    return DefaultTabController(
+      length: 2,
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Van Stock'),
+          actions: [
+            IconButton(
+              tooltip: 'Request Load',
+              icon: const Icon(Icons.download),
+              onPressed: _requestLoad,
             ),
-            const SizedBox(height: 8),
-            if (_transfers.isEmpty)
-              const Card(
-                child: Padding(
-                  padding: EdgeInsets.all(14),
-                  child: Text('No transfers yet.'),
-                ),
-              )
-            else
-              ..._transfers.map((t) => _buildTransferCard(t, theme)),
+            IconButton(
+              tooltip: 'Return Stock',
+              icon: const Icon(Icons.upload),
+              onPressed: _stock.isEmpty ? null : _returnStock,
+            ),
           ],
-        ],
-      ),
-    );
-  }
-
-  Widget _buildStockCard(Map<String, dynamic> row, ThemeData theme) {
-    final itemId = row['itemId']?.toString() ?? '';
-    final itemLabel =
-        row['itemName']?.toString() ??
-        row['itemCode']?.toString() ??
-        (itemId.length > 8 ? 'Item ${itemId.substring(0, 8)}…' : 'Item');
-    final qty = (row['quantityOnHand'] as num?)?.toDouble() ?? 0;
-    final lowStock = qty <= _lowStockThreshold;
-    final qtyColor = lowStock ? Colors.red : Colors.green.shade700;
-
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        child: Row(
+          bottom: const TabBar(
+            tabs: [
+              Tab(text: 'Stock'),
+              Tab(text: 'Transfers'),
+            ],
+          ),
+        ),
+        body: TabBarView(
           children: [
-            Icon(
-              Icons.inventory_2,
-              size: 20,
-              color: lowStock ? Colors.red : theme.colorScheme.primary,
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    itemLabel,
-                    style: theme.textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  if (itemId.isNotEmpty)
-                    Text(
-                      itemId,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: Colors.grey.shade600,
-                      ),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                ],
-              ),
-            ),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Text(
-                  qty.toStringAsFixed(qty == qty.roundToDouble() ? 0 : 2),
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w800,
-                    color: qtyColor,
-                  ),
-                ),
-                if (lowStock)
-                  Text(
-                    'Low stock',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: Colors.red,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-              ],
-            ),
+            _buildStockTab(theme),
+            _buildTransfersTab(theme),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildTransferCard(Map<String, dynamic> transfer, ThemeData theme) {
+  Widget _errorStrip() => StatusStrip(
+        icon: Icons.error_outline,
+        color: Colors.red,
+        text: _error!,
+      );
+
+  Widget _buildStockTab(ThemeData theme) {
+    final totalQty = _stock.fold<double>(
+      0,
+      (sum, row) => sum + ((row['quantityOnHand'] as num?)?.toDouble() ?? 0),
+    );
+    final totalValue = _stock.fold<double>(0, (sum, row) {
+      final qty = (row['quantityOnHand'] as num?)?.toDouble() ?? 0;
+      final rate =
+          (row['unitPrice'] as num?)?.toDouble() ??
+          (row['salePrice'] as num?)?.toDouble() ??
+          (row['mrp'] as num?)?.toDouble() ??
+          0;
+      return sum + qty * rate;
+    });
+
+    return RefreshIndicator(
+      onRefresh: _loadData,
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
+        children: [
+          if (_error != null) ...[
+            _errorStrip(),
+            const SizedBox(height: FieldUi.gap),
+          ],
+          MetricStrip(
+            items: [
+              MetricItem('SKUs', _stock.length.toString()),
+              MetricItem('Total qty', _fmtQty(totalQty)),
+              MetricItem(
+                'Value',
+                totalValue > 0 ? '₹${_fmtQty(totalValue)}' : '—',
+              ),
+            ],
+          ),
+          const SectionLabel('Current stock'),
+          if (_stock.isEmpty)
+            _emptyStrip('Van is empty. Request a load to begin.')
+          else
+            FlatList(
+              children: [
+                for (var i = 0; i < _stock.length; i++)
+                  _stockRow(_stock[i], theme, last: i == _stock.length - 1),
+              ],
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTransfersTab(ThemeData theme) {
+    return RefreshIndicator(
+      onRefresh: _loadData,
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
+        children: [
+          if (_error != null) ...[
+            _errorStrip(),
+            const SizedBox(height: FieldUi.gap),
+          ],
+          const SectionLabel('Recent transfers'),
+          if (_transfers.isEmpty)
+            _emptyStrip('No transfers yet.')
+          else
+            FlatList(
+              children: [
+                for (var i = 0; i < _transfers.length; i++)
+                  _transferRow(
+                    _transfers[i],
+                    theme,
+                    last: i == _transfers.length - 1,
+                  ),
+              ],
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _emptyStrip(String text) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Text(
+          text,
+          style: const TextStyle(color: FieldUi.muted),
+        ),
+      );
+
+  String _fmtQty(double v) =>
+      v.toStringAsFixed(v == v.roundToDouble() ? 0 : 2);
+
+  Widget _stockRow(Map<String, dynamic> row, ThemeData theme,
+      {required bool last}) {
+    final itemId = row['itemId']?.toString() ?? '';
+    final itemLabel =
+        row['itemName']?.toString() ??
+        row['itemCode']?.toString() ??
+        (itemId.length > 8 ? 'Item ${itemId.substring(0, 8)}…' : 'Item');
+    final batch =
+        row['batchNumber']?.toString() ??
+        row['batch']?.toString() ??
+        (itemId.isNotEmpty ? itemId : '');
+    final qty = (row['quantityOnHand'] as num?)?.toDouble() ?? 0;
+    final lowStock = qty <= _lowStockThreshold;
+    final qtyColor = lowStock ? Colors.red : Colors.green.shade700;
+
+    return FieldRow(
+      dense: true,
+      divider: !last,
+      leading: Icon(
+        Icons.inventory_2,
+        size: 18,
+        color: lowStock ? Colors.red : theme.colorScheme.primary,
+      ),
+      title: itemLabel,
+      subtitle: batch.isNotEmpty ? batch : null,
+      trailing: Column(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            _fmtQty(qty),
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w800,
+              color: qtyColor,
+            ),
+          ),
+          if (lowStock)
+            Text(
+              'Low',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: Colors.red,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _transferRow(Map<String, dynamic> transfer, ThemeData theme,
+      {required bool last}) {
     final type = transfer['transferType']?.toString() ?? 'LOAD';
     final status = transfer['status']?.toString() ?? 'DRAFT';
     final date = transfer['transferDate']?.toString() ?? '';
@@ -491,45 +527,29 @@ class _VanStockScreenState extends ConsumerState<VanStockScreen> {
       _ => Colors.blueGrey,
     };
 
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        child: Row(
-          children: [
-            Icon(
-              isLoad ? Icons.download : Icons.upload,
-              size: 20,
-              color: typeColor,
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    type,
-                    style: theme.textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  if (date.isNotEmpty)
-                    Text(date, style: theme.textTheme.bodySmall),
-                ],
-              ),
-            ),
-            Chip(
-              label: Text(
-                status,
-                style: TextStyle(
-                  color: statusColor,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              backgroundColor: statusColor.withValues(alpha: 0.1),
-              side: BorderSide.none,
-            ),
-          ],
+    return FieldRow(
+      dense: true,
+      divider: !last,
+      leading: Icon(
+        isLoad ? Icons.download : Icons.upload,
+        size: 18,
+        color: typeColor,
+      ),
+      title: type,
+      subtitle: date.isNotEmpty ? date : null,
+      trailing: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        decoration: BoxDecoration(
+          color: statusColor.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(FieldUi.radius),
+        ),
+        child: Text(
+          status,
+          style: TextStyle(
+            color: statusColor,
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+          ),
         ),
       ),
     );

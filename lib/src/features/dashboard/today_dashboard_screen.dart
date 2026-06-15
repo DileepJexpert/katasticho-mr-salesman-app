@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../app/theme.dart';
 import '../../core/location/location_service.dart';
 import '../auth/auth_controller.dart';
 import '../shared/field_widgets.dart';
@@ -173,50 +174,62 @@ class _TodayDashboardScreenState extends ConsumerState<TodayDashboardScreen> {
     return '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
   }
 
-  Widget _attendanceCard() {
+  Widget _attendanceStrip() {
     final punchedIn = _attendance?['punchInAt'] != null;
     final punchedOut = _attendance?['punchOutAt'] != null;
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        child: Row(
-          children: [
-            Icon(
-              punchedOut
-                  ? Icons.task_alt
-                  : punchedIn
-                      ? Icons.timer_outlined
-                      : Icons.badge_outlined,
-              color: punchedIn && !punchedOut ? Colors.green : null,
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                punchedOut
-                    ? 'Day done · in ${_punchTime(_attendance?['punchInAt']?.toString())}'
-                        ' / out ${_punchTime(_attendance?['punchOutAt']?.toString())}'
-                    : punchedIn
-                        ? 'On duty since ${_punchTime(_attendance?['punchInAt']?.toString())}'
-                        : 'Not punched in yet',
-              ),
-            ),
-            if (!punchedIn)
-              FilledButton(
-                onPressed: () => _punch(isIn: true),
-                child: const Text('Punch In'),
-              )
-            else if (!punchedOut)
-              OutlinedButton(
-                onPressed: () => _punch(isIn: false),
-                child: const Text('Punch Out'),
-              ),
-            IconButton(
-              tooltip: 'Apply leave',
-              icon: const Icon(Icons.beach_access_outlined),
-              onPressed: _applyLeave,
-            ),
-          ],
+    final color = punchedIn && !punchedOut
+        ? Colors.green
+        : punchedOut
+            ? FieldUi.muted
+            : const Color(0xFF2563EB);
+    final icon = punchedOut
+        ? Icons.task_alt
+        : punchedIn
+            ? Icons.timer_outlined
+            : Icons.badge_outlined;
+    final text = punchedOut
+        ? 'Day done · in ${_punchTime(_attendance?['punchInAt']?.toString())}'
+            ' / out ${_punchTime(_attendance?['punchOutAt']?.toString())}'
+        : punchedIn
+            ? 'On duty since ${_punchTime(_attendance?['punchInAt']?.toString())}'
+            : 'Not punched in yet';
+
+    Widget? punchAction;
+    if (!punchedIn) {
+      punchAction = FilledButton(
+        onPressed: () => _punch(isIn: true),
+        style: FilledButton.styleFrom(
+          minimumSize: const Size(0, 36),
+          padding: const EdgeInsets.symmetric(horizontal: 14),
         ),
+        child: const Text('Punch In'),
+      );
+    } else if (!punchedOut) {
+      punchAction = OutlinedButton(
+        onPressed: () => _punch(isIn: false),
+        style: OutlinedButton.styleFrom(
+          minimumSize: const Size(0, 36),
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+        ),
+        child: const Text('Punch Out'),
+      );
+    }
+
+    return StatusStrip(
+      icon: icon,
+      text: text,
+      color: color,
+      action: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (punchAction != null) punchAction,
+          IconButton(
+            tooltip: 'Apply leave',
+            visualDensity: VisualDensity.compact,
+            icon: const Icon(Icons.beach_access_outlined),
+            onPressed: _applyLeave,
+          ),
+        ],
       ),
     );
   }
@@ -286,214 +299,175 @@ class _TodayDashboardScreenState extends ConsumerState<TodayDashboardScreen> {
             const SizedBox(height: 12),
           ],
 
-          _attendanceCard(),
+          _attendanceStrip(),
           const SizedBox(height: 12),
 
-          Row(
-            children: [
-              Expanded(
-                child: MetricTile(
-                  icon: Icons.route,
-                  label: 'Routes (MTD)',
-                  value: '$totalRoutes',
-                  tint: const Color(0xFF2563EB),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: MetricTile(
-                  icon: Icons.storefront,
-                  label: 'Visits (MTD)',
-                  value: '$totalVisits',
-                  tint: const Color(0xFF059669),
-                ),
-              ),
+          MetricStrip(
+            items: [
+              MetricItem('Routes (MTD)', '$totalRoutes',
+                  color: const Color(0xFF2563EB)),
+              MetricItem('Visits (MTD)', '$totalVisits',
+                  color: const Color(0xFF059669)),
+              MetricItem('Productive %', '${productivePercent.toStringAsFixed(1)}%',
+                  color: const Color(0xFFF59E0B)),
             ],
           ),
           const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(
-                child: MetricTile(
-                  icon: Icons.trending_up,
-                  label: 'Productive %',
-                  value: '${productivePercent.toStringAsFixed(1)}%',
-                  tint: const Color(0xFFF59E0B),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: MetricTile(
-                  icon: Icons.payments,
-                  label: 'Collections',
-                  value: _formatCurrency(totalCollections),
-                  tint: const Color(0xFF7C3AED),
-                ),
-              ),
+          MetricStrip(
+            items: [
+              MetricItem('Orders (MTD)', _formatCurrency(totalOrders),
+                  color: const Color(0xFF0891B2)),
+              MetricItem('Collections', _formatCurrency(totalCollections),
+                  color: const Color(0xFF7C3AED)),
             ],
           ),
-          const SizedBox(height: 10),
-          MetricTile(
-            icon: Icons.shopping_cart,
-            label: 'Orders (MTD)',
-            value: _formatCurrency(totalOrders),
-            tint: const Color(0xFF0891B2),
-          ),
-          const SizedBox(height: 20),
 
-          Text(
-            "Today's Routes",
-            style: theme.textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-          const SizedBox(height: 8),
+          const SectionLabel("Today's Routes"),
           if (_todayExecutions.isEmpty)
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: Row(
-                  children: [
-                    Icon(Icons.event_busy, color: Colors.grey.shade400),
-                    const SizedBox(width: 10),
-                    const Expanded(
-                      child: Text('No routes assigned for today.'),
-                    ),
-                  ],
+            FlatList(
+              children: [
+                FieldRow(
+                  divider: false,
+                  leading: Icon(Icons.event_busy, color: Colors.grey.shade400),
+                  title: 'No routes assigned for today.',
                 ),
-              ),
+              ],
             )
           else
-            ..._todayExecutions.map((exec) {
-              final routeName =
-                  exec['routeName']?.toString() ??
-                  exec['routeId']?.toString() ??
-                  'Route';
-              final status = exec['status']?.toString() ?? 'PLANNED';
-              final tv = (exec['totalVisits'] as num?)?.toInt() ?? 0;
-              final cv = (exec['completedVisits'] as num?)?.toInt() ?? 0;
-
-              Color statusColor;
-              switch (status) {
-                case 'IN_PROGRESS':
-                  statusColor = Colors.orange;
-                case 'COMPLETED':
-                  statusColor = Colors.green;
-                default:
-                  statusColor = Colors.blue;
-              }
-
-              return Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(14),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              routeName,
-                              style: theme.textTheme.titleMedium?.copyWith(
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                          ),
-                          Chip(
-                            label: Text(
-                              status.replaceAll('_', ' '),
-                              style: TextStyle(
-                                color: statusColor,
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                            backgroundColor: statusColor.withValues(alpha: 0.1),
-                            side: BorderSide.none,
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 6),
-                      Text('$cv / $tv visits completed'),
-                    ],
+            FlatList(
+              children: [
+                for (var i = 0; i < _todayExecutions.length; i++)
+                  _routeRow(
+                    _todayExecutions[i],
+                    divider: i != _todayExecutions.length - 1,
                   ),
-                ),
-              );
-            }),
-          const SizedBox(height: 20),
+              ],
+            ),
 
           if (_targets.isNotEmpty) ...[
-            Text(
-              'My Targets',
-              style: theme.textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-            const SizedBox(height: 8),
-            ..._targets.map((t) {
-              final targetType =
-                  t['targetType']?.toString() ?? t['type']?.toString() ?? '--';
-              final targetValue =
-                  (t['targetValue'] as num?)?.toDouble() ??
-                  (t['target'] as num?)?.toDouble() ??
-                  0;
-              final achieved =
-                  (t['achieved'] as num?)?.toDouble() ??
-                  (t['achievedValue'] as num?)?.toDouble() ??
-                  0;
-              final pct = targetValue > 0
-                  ? (achieved / targetValue * 100)
-                  : 0.0;
-
-              return Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(14),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Text(
-                            targetType,
-                            style: theme.textTheme.titleSmall?.copyWith(
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          const Spacer(),
-                          Text(
-                            '${pct.toStringAsFixed(1)}%',
-                            style: TextStyle(
-                              fontWeight: FontWeight.w700,
-                              color: pct >= 90
-                                  ? Colors.green
-                                  : pct >= 50
-                                  ? Colors.orange
-                                  : Colors.red,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(4),
-                        child: LinearProgressIndicator(
-                          value: (pct / 100).clamp(0.0, 1.0),
-                          minHeight: 8,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '${_formatCurrency(achieved)} / ${_formatCurrency(targetValue)}',
-                        style: theme.textTheme.bodySmall,
-                      ),
-                    ],
+            const SectionLabel('My Targets'),
+            FlatList(
+              children: [
+                for (var i = 0; i < _targets.length; i++)
+                  _targetRow(
+                    _targets[i],
+                    divider: i != _targets.length - 1,
                   ),
-                ),
-              );
-            }),
+              ],
+            ),
           ],
         ],
       ),
+    );
+  }
+
+  Widget _routeRow(dynamic exec, {required bool divider}) {
+    final routeName = exec['routeName']?.toString() ??
+        exec['routeId']?.toString() ??
+        'Route';
+    final status = exec['status']?.toString() ?? 'PLANNED';
+    final tv = (exec['totalVisits'] as num?)?.toInt() ?? 0;
+    final cv = (exec['completedVisits'] as num?)?.toInt() ?? 0;
+
+    Color statusColor;
+    switch (status) {
+      case 'IN_PROGRESS':
+        statusColor = Colors.orange;
+      case 'COMPLETED':
+        statusColor = Colors.green;
+      default:
+        statusColor = Colors.blue;
+    }
+
+    return FieldRow(
+      divider: divider,
+      title: routeName,
+      subtitle: '$cv / $tv visits completed',
+      trailing: Chip(
+        label: Text(
+          status.replaceAll('_', ' '),
+          style: TextStyle(
+            color: statusColor,
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        backgroundColor: statusColor.withValues(alpha: 0.1),
+        side: BorderSide.none,
+        visualDensity: VisualDensity.compact,
+        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      ),
+    );
+  }
+
+  Widget _targetRow(dynamic t, {required bool divider}) {
+    final targetType =
+        t['targetType']?.toString() ?? t['type']?.toString() ?? '--';
+    final targetValue = (t['targetValue'] as num?)?.toDouble() ??
+        (t['target'] as num?)?.toDouble() ??
+        0;
+    final achieved = (t['achieved'] as num?)?.toDouble() ??
+        (t['achievedValue'] as num?)?.toDouble() ??
+        0;
+    final pct = targetValue > 0 ? (achieved / targetValue * 100) : 0.0;
+    final pctColor = pct >= 90
+        ? Colors.green
+        : pct >= 50
+            ? Colors.orange
+            : Colors.red;
+
+    final row = Padding(
+      padding: EdgeInsets.symmetric(
+        horizontal: 4,
+        vertical: FieldUi.gap,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  targetType,
+                  style: Theme.of(context)
+                      .textTheme
+                      .bodyLarge
+                      ?.copyWith(fontWeight: FontWeight.w600),
+                ),
+              ),
+              Text(
+                '${pct.toStringAsFixed(1)}%',
+                style: TextStyle(
+                  fontWeight: FontWeight.w700,
+                  color: pctColor,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: LinearProgressIndicator(
+              value: (pct / 100).clamp(0.0, 1.0),
+              minHeight: 6,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '${_formatCurrency(achieved)} / ${_formatCurrency(targetValue)}',
+            style: Theme.of(context)
+                .textTheme
+                .bodySmall
+                ?.copyWith(color: FieldUi.muted),
+          ),
+        ],
+      ),
+    );
+    if (!divider) return row;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [row, const Divider(height: 1)],
     );
   }
 

@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../app/theme.dart';
 import '../auth/auth_controller.dart';
 import '../shared/field_widgets.dart';
 
@@ -145,7 +146,6 @@ class _DayCloseScreenState extends ConsumerState<DayCloseScreen> {
   @override
   Widget build(BuildContext context) {
     final session = ref.watch(authControllerProvider).session;
-    final theme = Theme.of(context);
 
     if (_loading) {
       return const Center(child: CircularProgressIndicator());
@@ -155,82 +155,83 @@ class _DayCloseScreenState extends ConsumerState<DayCloseScreen> {
       return PageScaffold(
         title: 'Day Close',
         subtitle: 'Demo mode — login with real credentials to see live data.',
-        children: [
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(14),
-              child: Row(
-                children: [
-                  Icon(Icons.info_outline, color: theme.colorScheme.primary),
-                  const SizedBox(width: 10),
-                  const Expanded(
-                    child: Text(
-                      'Demo mode shows sample data. Login with your '
-                      'Katasticho ERP credentials to reconcile and close '
-                      'your day.',
-                    ),
-                  ),
-                ],
-              ),
-            ),
+        children: const [
+          StatusStrip(
+            icon: Icons.info_outline,
+            text:
+                'Demo mode shows sample data. Login with your Katasticho ERP '
+                'credentials to reconcile and close your day.',
+            color: Color(0xFF2563EB),
           ),
         ],
       );
     }
 
-    return RefreshIndicator(
+    // When the reconciliation form is showing, pin the submit bar at the
+    // bottom. Otherwise the page is a plain scrollable summary.
+    final showForm = _execution != null && _dayClose == null;
+    final isCompleted =
+        _execution?['status']?.toString() == 'COMPLETED';
+
+    final page = RefreshIndicator(
       onRefresh: _load,
       child: PageScaffold(
         title: 'Day Close',
         subtitle: 'End-of-day cash reconciliation and summary.',
         children: [
           if (_error != null) ...[
-            Card(
-              color: Colors.red.shade50,
-              child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: Text(
-                  _error!,
-                  style: TextStyle(color: Colors.red.shade700),
-                ),
-              ),
+            StatusStrip(
+              icon: Icons.error_outline,
+              text: _error!,
+              color: Colors.red,
             ),
             const SizedBox(height: 12),
           ],
           if (_execution == null)
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: Row(
-                  children: [
-                    Icon(Icons.event_busy, color: Colors.grey.shade400),
-                    const SizedBox(width: 10),
-                    const Expanded(
-                      child: Text(
-                        'No route execution for today. Start and complete '
-                        'a route to close the day.',
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+            const StatusStrip(
+              icon: Icons.event_busy,
+              text:
+                  'No route execution for today. Start and complete a route '
+                  'to close the day.',
+              color: FieldUi.muted,
             )
           else ...[
-            _executionSummary(theme),
-            const SizedBox(height: 16),
+            ..._executionSummary(),
             if (_dayClose != null)
-              ..._dayCloseStatus(theme)
+              ..._dayCloseStatus()
             else
-              _reconciliationForm(theme),
+              ..._reconciliationForm(isCompleted),
           ],
         ],
+      ),
+    );
+
+    if (!showForm) return page;
+
+    return Scaffold(
+      body: page,
+      bottomNavigationBar: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+          child: FilledButton.icon(
+            onPressed: (!isCompleted || _submitting) ? null : _submit,
+            icon: _submitting
+                ? const SizedBox(
+                    height: 18,
+                    width: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.nightlight_round),
+            label: Text(_submitting ? 'Submitting…' : 'Submit day close'),
+          ),
+        ),
       ),
     );
   }
 
   // ── Summary from visits ───────────────────────────────────────
 
-  Widget _executionSummary(ThemeData theme) {
+  List<Widget> _executionSummary() {
     final execution = _execution!;
     final routeName =
         execution['routeName']?.toString() ??
@@ -252,86 +253,33 @@ class _DayCloseScreenState extends ConsumerState<DayCloseScreen> {
       collections += (raw['collectionAmount'] as num?)?.toDouble() ?? 0;
     }
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: Text(
-                routeName,
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-            ),
-            Chip(
-              label: Text(
-                status.replaceAll('_', ' '),
-                style: TextStyle(
-                  color: status == 'COMPLETED' ? Colors.green : Colors.orange,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              backgroundColor:
-                  (status == 'COMPLETED' ? Colors.green : Colors.orange)
-                      .withValues(alpha: 0.1),
-              side: BorderSide.none,
-            ),
-          ],
+    final statusColor =
+        status == 'COMPLETED' ? Colors.green : Colors.orange;
+
+    return [
+      SectionLabel(
+        routeName,
+        trailing: Text(
+          status.replaceAll('_', ' '),
+          style: TextStyle(
+            color: statusColor,
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+          ),
         ),
-        const SizedBox(height: 10),
-        Row(
-          children: [
-            Expanded(
-              child: MetricTile(
-                icon: Icons.storefront,
-                label: 'Visits',
-                value: '$completed / $totalVisits',
-                tint: const Color(0xFF2563EB),
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: MetricTile(
-                icon: Icons.skip_next,
-                label: 'Skipped',
-                value: '$skipped',
-                tint: const Color(0xFF475569),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 10),
-        Row(
-          children: [
-            Expanded(
-              child: MetricTile(
-                icon: Icons.shopping_cart,
-                label: 'Orders',
-                value: _formatCurrency(ordersValue),
-                tint: const Color(0xFF0891B2),
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: MetricTile(
-                icon: Icons.payments,
-                label: 'Collections',
-                value: _formatCurrency(collections),
-                tint: const Color(0xFF7C3AED),
-              ),
-            ),
-          ],
-        ),
-      ],
-    );
+      ),
+      MetricStrip(items: [
+        MetricItem('Visits', '$completed / $totalVisits'),
+        MetricItem('Skipped', '$skipped'),
+        MetricItem('Orders', _formatCurrency(ordersValue)),
+        MetricItem('Collections', _formatCurrency(collections)),
+      ]),
+    ];
   }
 
   // ── Day close status (already initiated/submitted) ────────────
 
-  List<Widget> _dayCloseStatus(ThemeData theme) {
+  List<Widget> _dayCloseStatus() {
     final dayClose = _dayClose!;
     final status = dayClose['status']?.toString() ?? 'PENDING';
 
@@ -360,168 +308,81 @@ class _DayCloseScreenState extends ConsumerState<DayCloseScreen> {
     };
 
     return [
-      Card(
-        color: bannerColor.withValues(alpha: 0.08),
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Row(
-            children: [
-              Icon(bannerIcon, color: bannerColor),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  bannerText,
-                  style: TextStyle(
-                    color: bannerColor,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
       const SizedBox(height: 12),
-      Text(
-        'Cash Reconciliation',
-        style: theme.textTheme.titleMedium?.copyWith(
-          fontWeight: FontWeight.w800,
-        ),
+      StatusStrip(
+        icon: bannerIcon,
+        text: bannerText,
+        color: bannerColor,
       ),
-      const SizedBox(height: 8),
-      Card(
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Column(
-            children: [
-              _amountRow('Opening cash', dayClose['openingCash']),
-              _amountRow('Cash collections', dayClose['cashCollections']),
-              _amountRow('Cash expenses', dayClose['cashExpenses']),
-              const Divider(),
-              _amountRow('Closing cash', dayClose['closingCash']),
-              _amountRow('Cash deposited', dayClose['cashDeposited']),
-              _amountRow(
-                'Variance',
-                dayClose['cashVariance'],
-                highlight: true,
-              ),
-            ],
-          ),
+      const SectionLabel('Cash Reconciliation'),
+      FlatList(children: [
+        _amountRow('Opening cash', dayClose['openingCash']),
+        _amountRow('Cash collections', dayClose['cashCollections']),
+        _amountRow('Cash expenses', dayClose['cashExpenses']),
+        _amountRow('Closing cash', dayClose['closingCash']),
+        _amountRow('Cash deposited', dayClose['cashDeposited']),
+        _amountRow(
+          'Variance',
+          dayClose['cashVariance'],
+          highlight: true,
+          divider: false,
         ),
-      ),
+      ]),
     ];
   }
 
-  Widget _amountRow(String label, dynamic value, {bool highlight = false}) {
+  Widget _amountRow(
+    String label,
+    dynamic value, {
+    bool highlight = false,
+    bool divider = true,
+  }) {
     final amount = (value as num?)?.toDouble() ?? 0;
     final color = highlight
         ? (amount == 0 ? Colors.green : Colors.red)
-        : null;
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(label, style: Theme.of(context).textTheme.bodyMedium),
-          ),
-          Text(
-            _formatCurrency(amount),
-            style: TextStyle(fontWeight: FontWeight.w800, color: color),
-          ),
-        ],
+        : FieldUi.ink;
+    return FieldRow(
+      title: label,
+      dense: true,
+      divider: divider,
+      trailing: Text(
+        _formatCurrency(amount),
+        style: TextStyle(fontWeight: FontWeight.w800, color: color),
       ),
     );
   }
 
   // ── Reconciliation form ───────────────────────────────────────
 
-  Widget _reconciliationForm(ThemeData theme) {
-    final execution = _execution!;
-    final isCompleted = execution['status']?.toString() == 'COMPLETED';
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Cash Reconciliation',
-          style: theme.textTheme.titleMedium?.copyWith(
-            fontWeight: FontWeight.w800,
-          ),
-        ),
-        const SizedBox(height: 8),
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(14),
-            child: Column(
-              children: [
-                if (!isCompleted) ...[
-                  Row(
-                    children: [
-                      Icon(
-                        Icons.info_outline,
-                        color: Colors.orange.shade700,
-                      ),
-                      const SizedBox(width: 10),
-                      const Expanded(
-                        child: Text(
-                          'Complete your route before closing the day.',
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                ],
-                TextField(
-                  controller: _closingCashController,
-                  keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true,
-                  ),
-                  decoration: const InputDecoration(
-                    labelText: 'Closing cash in hand',
-                    prefixText: '₹ ',
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _depositedController,
-                  keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true,
-                  ),
-                  decoration: const InputDecoration(
-                    labelText: 'Cash deposited',
-                    prefixText: '₹ ',
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _notesController,
-                  minLines: 2,
-                  maxLines: 4,
-                  decoration: const InputDecoration(labelText: 'Notes'),
-                ),
-                const SizedBox(height: 12),
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton.icon(
-                    onPressed: (!isCompleted || _submitting) ? null : _submit,
-                    icon: _submitting
-                        ? const SizedBox(
-                            height: 18,
-                            width: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.nightlight_round),
-                    label: Text(
-                      _submitting ? 'Submitting…' : 'Submit day close',
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
+  List<Widget> _reconciliationForm(bool isCompleted) {
+    return [
+      if (!isCompleted) ...[
+        const SizedBox(height: 12),
+        StatusStrip(
+          icon: Icons.info_outline,
+          text: 'Complete your route before closing the day.',
+          color: Colors.orange.shade700,
         ),
       ],
-    );
+      const SectionLabel('Closing cash in hand'),
+      TextField(
+        controller: _closingCashController,
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        decoration: const InputDecoration(prefixText: '₹ '),
+      ),
+      const SectionLabel('Cash deposited'),
+      TextField(
+        controller: _depositedController,
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        decoration: const InputDecoration(prefixText: '₹ '),
+      ),
+      const SectionLabel('Notes'),
+      TextField(
+        controller: _notesController,
+        minLines: 2,
+        maxLines: 4,
+      ),
+    ];
   }
 
   String _formatCurrency(double value) {

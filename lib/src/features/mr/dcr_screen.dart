@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../app/theme.dart';
 import '../auth/auth_controller.dart';
+import '../shared/field_widgets.dart';
 
 /// Daily Report (DCR): summarises today's visits — order bookings,
 /// samples/promo given, and the doctor/chemist split when contacts are
@@ -170,138 +172,81 @@ class _DcrScreenState extends ConsumerState<DcrScreen> {
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : ListView(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.fromLTRB(16, 6, 16, 24),
               children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text("Today's summary",
-                        style: Theme.of(context).textTheme.titleMedium),
-                    Chip(
-                      label: Text(status,
-                          style: const TextStyle(fontSize: 11)),
-                      visualDensity: VisualDensity.compact,
+                SectionLabel(
+                  "Today's summary",
+                  trailing: Text(
+                    status,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: _statusColor(status),
                     ),
-                  ],
+                  ),
                 ),
-                const SizedBox(height: 8),
                 if (status == 'REJECTED' &&
                     _dcr?['rejectionReason'] != null) ...[
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.red.shade50,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text('Rejected: ${_dcr!['rejectionReason']}',
-                        style: TextStyle(color: Colors.red.shade800)),
+                  StatusStrip(
+                    icon: Icons.cancel,
+                    text: 'Rejected: ${_dcr!['rejectionReason']}',
+                    color: Colors.red,
                   ),
                   const SizedBox(height: 8),
                 ],
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceAround,
-                          children: [
-                            _Metric('Visits', '${_dcr?['totalVisits'] ?? 0}'),
-                            _Metric('Orders ₹', '${_dcr?['totalPob'] ?? 0}'),
-                            _Metric(
-                                'Samples', '${_dcr?['samplesGiven'] ?? 0}'),
-                          ],
-                        ),
-                        if (((_dcr?['doctorsVisited'] as num?) ?? 0) > 0 ||
-                            ((_dcr?['chemistsVisited'] as num?) ?? 0) > 0) ...[
-                          const Divider(height: 24),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceAround,
-                            children: [
-                              _Metric('Doctors',
-                                  '${_dcr?['doctorsVisited'] ?? 0}'),
-                              _Metric('Chemists',
-                                  '${_dcr?['chemistsVisited'] ?? 0}'),
-                              _Metric('Others',
-                                  '${_dcr?['othersVisited'] ?? 0}'),
-                            ],
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                ),
+                MetricStrip(items: [
+                  MetricItem('Visits', '${_dcr?['totalVisits'] ?? 0}'),
+                  MetricItem('Orders ₹', '${_dcr?['totalPob'] ?? 0}'),
+                  MetricItem('Samples', '${_dcr?['samplesGiven'] ?? 0}'),
+                ]),
+                if (((_dcr?['doctorsVisited'] as num?) ?? 0) > 0 ||
+                    ((_dcr?['chemistsVisited'] as num?) ?? 0) > 0) ...[
+                  const SizedBox(height: 8),
+                  MetricStrip(items: [
+                    MetricItem('Doctors', '${_dcr?['doctorsVisited'] ?? 0}'),
+                    MetricItem('Chemists', '${_dcr?['chemistsVisited'] ?? 0}'),
+                    MetricItem('Others', '${_dcr?['othersVisited'] ?? 0}'),
+                  ]),
+                ],
                 if (_allowance != null &&
                     _allowance!['configured'] == true) ...[
-                  const SizedBox(height: 12),
-                  Card(
-                    child: ListTile(
-                      leading: const Icon(Icons.directions_car_outlined),
-                      title: Text(
-                          'TA/DA: ₹${_allowance!['totalAmount'] ?? 0}'),
-                      subtitle: Text(
-                          '${_allowance!['distanceKm'] ?? 0} km travelled'
+                  const SectionLabel('TA / DA allowance'),
+                  FlatList(children: [
+                    FieldRow(
+                      leading: const Icon(Icons.directions_car_outlined,
+                          color: FieldUi.muted),
+                      title: 'TA/DA ₹${_allowance!['totalAmount'] ?? 0}',
+                      subtitle: '${_allowance!['distanceKm'] ?? 0} km travelled'
                           ' • TA ₹${_allowance!['taAmount'] ?? 0}'
-                          ' + DA ₹${_allowance!['daAmount'] ?? 0}'),
+                          ' + DA ₹${_allowance!['daAmount'] ?? 0}',
+                      divider: false,
                       trailing: _allowance!['claimed'] == true
-                          ? const Chip(
-                              label: Text('CLAIMED',
-                                  style: TextStyle(fontSize: 11)),
-                              visualDensity: VisualDensity.compact,
-                            )
+                          ? Text('CLAIMED',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                color: Colors.green.shade700,
+                              ))
                           : FilledButton.tonal(
                               onPressed: _claimAllowance,
                               child: const Text('Claim'),
                             ),
                     ),
-                  ),
+                  ]),
                 ],
                 if (_samples.isNotEmpty) ...[
-                  const SizedBox(height: 12),
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('My sample / promo stock',
-                              style:
-                                  Theme.of(context).textTheme.titleSmall),
-                          const SizedBox(height: 4),
-                          ..._samples.map((r) {
-                            final bal = (r['balance'] as num?) ?? 0;
-                            return Padding(
-                              padding:
-                                  const EdgeInsets.symmetric(vertical: 2),
-                              child: Row(
-                                mainAxisAlignment:
-                                    MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Expanded(
-                                      child: Text(
-                                          r['productName']?.toString() ??
-                                              '')),
-                                  Text('$bal left',
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.w600,
-                                        color:
-                                            bal < 0 ? Colors.red : null,
-                                      )),
-                                ],
-                              ),
-                            );
-                          }),
-                        ],
-                      ),
-                    ),
+                  const SectionLabel('My sample / promo stock'),
+                  FlatList(
+                    children: [
+                      for (var i = 0; i < _samples.length; i++)
+                        _sampleRow(_samples[i], i == _samples.length - 1),
+                    ],
                   ),
                 ],
-                const SizedBox(height: 16),
                 if (_submittable) ...[
+                  const SectionLabel('Work type'),
                   DropdownButtonFormField<String>(
                     initialValue: _workType,
-                    decoration: const InputDecoration(labelText: 'Work type'),
                     items: const [
                       DropdownMenuItem(
                           value: 'FIELD_WORK', child: Text('Field work')),
@@ -314,11 +259,10 @@ class _DcrScreenState extends ConsumerState<DcrScreen> {
                     onChanged: (v) =>
                         setState(() => _workType = v ?? 'FIELD_WORK'),
                   ),
-                  const SizedBox(height: 8),
+                  const SectionLabel('Remarks'),
                   TextField(
                     controller: _remarksCtl,
                     maxLines: 2,
-                    decoration: const InputDecoration(labelText: 'Remarks'),
                   ),
                   const SizedBox(height: 12),
                   FilledButton.icon(
@@ -327,49 +271,65 @@ class _DcrScreenState extends ConsumerState<DcrScreen> {
                     label: const Text('Submit DCR'),
                   ),
                 ],
-                const SizedBox(height: 24),
-                Text('History', style: Theme.of(context).textTheme.titleMedium),
-                const SizedBox(height: 8),
-                ..._history.map((d) => Card(
-                      child: ListTile(
-                        dense: true,
-                        leading: const Icon(Icons.assignment_outlined),
-                        title: Text(
-                            '${d['reportDate']} — ${d['workType'] ?? ''}'),
-                        subtitle: Text(
-                            'Visits ${d['totalVisits']} • POB ₹${d['totalPob']}'
-                            ' • Samples ${d['samplesGiven']}'),
-                        trailing: Text(d['status']?.toString() ?? '',
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: switch (d['status']?.toString()) {
-                                'APPROVED' => Colors.green,
-                                'REJECTED' => Colors.red,
-                                'SUBMITTED' => Colors.orange,
-                                _ => Colors.grey,
-                              },
-                            )),
-                      ),
-                    )),
+                const SectionLabel('History'),
+                if (_history.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 12, horizontal: 4),
+                    child: Text('No reports yet.',
+                        style: TextStyle(color: FieldUi.muted)),
+                  )
+                else
+                  FlatList(
+                    children: [
+                      for (var i = 0; i < _history.length; i++)
+                        _historyRow(_history[i], i == _history.length - 1),
+                    ],
+                  ),
               ],
             ),
     );
   }
-}
 
-class _Metric extends StatelessWidget {
-  const _Metric(this.label, this.value);
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Text(value, style: Theme.of(context).textTheme.titleLarge),
-        Text(label, style: Theme.of(context).textTheme.bodySmall),
-      ],
+  Widget _sampleRow(Map<String, dynamic> r, bool last) {
+    final bal = (r['balance'] as num?) ?? 0;
+    return FieldRow(
+      title: r['productName']?.toString() ?? '',
+      dense: true,
+      divider: !last,
+      trailing: Text(
+        '$bal left',
+        style: TextStyle(
+          fontWeight: FontWeight.w700,
+          color: bal < 0 ? Colors.red : FieldUi.ink,
+        ),
+      ),
     );
+  }
+
+  Widget _historyRow(Map<String, dynamic> d, bool last) {
+    return FieldRow(
+      leading: const Icon(Icons.assignment_outlined, color: FieldUi.muted),
+      title: '${d['reportDate']} — ${d['workType'] ?? ''}',
+      subtitle: 'Visits ${d['totalVisits']} • POB ₹${d['totalPob']}'
+          ' • Samples ${d['samplesGiven']}',
+      divider: !last,
+      trailing: Text(
+        d['status']?.toString() ?? '',
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+          color: _statusColor(d['status']?.toString()),
+        ),
+      ),
+    );
+  }
+
+  Color _statusColor(String? status) {
+    return switch (status) {
+      'APPROVED' => Colors.green,
+      'REJECTED' => Colors.red,
+      'SUBMITTED' => Colors.orange,
+      _ => FieldUi.muted,
+    };
   }
 }
