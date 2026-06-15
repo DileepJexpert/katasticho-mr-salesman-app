@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../app/theme.dart';
 import '../../core/storage/offline_queue.dart';
 import '../../core/storage/offline_queue_provider.dart';
 import '../auth/auth_controller.dart';
@@ -169,11 +170,10 @@ class _SyncScreenState extends ConsumerState<SyncScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final session = ref.watch(authControllerProvider).session;
 
     final statusColor = _backendReachable == null
-        ? Colors.grey
+        ? FieldUi.muted
         : _backendReachable!
         ? Colors.green
         : Colors.red;
@@ -183,218 +183,164 @@ class _SyncScreenState extends ConsumerState<SyncScreen> {
         ? 'Connected'
         : 'Unreachable';
 
+    final pendingText = _pendingActions.isEmpty
+        ? 'Queue empty'
+        : '${_pendingActions.length} pending';
+    final statusLineParts = <String>[
+      pendingText,
+      'Backend $statusLabel',
+      if (_lastChecked != null) 'Checked $_lastChecked',
+      if (_lastSyncResult != null) 'Last sync: $_lastSyncResult',
+    ];
+
     return PageScaffold(
       title: 'Sync',
       subtitle: 'Backend connectivity and offline action queue.',
       children: [
-        // Connection status card
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      width: 12,
-                      height: 12,
-                      decoration: BoxDecoration(
-                        color: statusColor,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Text(
-                      'Backend: $statusLabel',
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ],
-                ),
-                if (_lastChecked != null) ...[
-                  const SizedBox(height: 6),
-                  Text(
-                    'Last checked: $_lastChecked',
-                    style: theme.textTheme.bodySmall,
-                  ),
-                ],
-                const SizedBox(height: 14),
-                FilledButton.icon(
-                  onPressed: _checking ? null : _checkConnection,
-                  icon: _checking
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.wifi_find, size: 18),
-                  label: Text(_checking ? 'Checking…' : 'Check Connection'),
-                ),
-              ],
-            ),
+        // Compact status header.
+        StatusStrip(
+          icon: _pendingActions.isEmpty
+              ? Icons.cloud_done
+              : Icons.cloud_upload,
+          color: statusColor,
+          text: statusLineParts.join(' · '),
+          action: TextButton.icon(
+            onPressed: _checking ? null : _checkConnection,
+            icon: _checking
+                ? const SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.wifi_find, size: 16),
+            label: Text(_checking ? 'Checking…' : 'Check'),
           ),
         ),
         const SizedBox(height: 12),
 
-        // Offline queue card
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Icon(
-                      Icons.cloud_upload,
-                      color: _pendingActions.isEmpty
-                          ? Colors.green
-                          : Colors.orange,
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        _pendingActions.isEmpty
-                            ? 'Offline queue: empty'
-                            : 'Offline queue: ${_pendingActions.length} pending',
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                if (_lastSyncResult != null) ...[
-                  const SizedBox(height: 6),
-                  Text(
-                    'Last sync: $_lastSyncResult',
-                    style: theme.textTheme.bodySmall,
-                  ),
-                ],
-                const SizedBox(height: 6),
-                Text(
-                  'Pending actions sync automatically every 30 seconds when '
-                  'the backend is reachable.',
-                  style: theme.textTheme.bodySmall,
-                ),
-                const SizedBox(height: 14),
-                FilledButton.icon(
-                  onPressed: (_syncing || _pendingActions.isEmpty)
-                      ? null
-                      : _processQueue,
-                  icon: _syncing
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.sync, size: 18),
-                  label: Text(_syncing ? 'Syncing…' : 'Sync Now'),
-                ),
-              ],
-            ),
-          ),
+        // Single primary action.
+        FilledButton.icon(
+          onPressed: (_syncing || _pendingActions.isEmpty)
+              ? null
+              : _processQueue,
+          icon: _syncing
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.sync, size: 18),
+          label: Text(_syncing ? 'Syncing…' : 'Sync now'),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 6),
+        Text(
+          'Pending actions sync automatically every 30 seconds when the '
+          'backend is reachable.',
+          style: Theme.of(context).textTheme.bodySmall
+              ?.copyWith(color: FieldUi.muted),
+        ),
 
-        // Pending actions list
-        if (_pendingActions.isNotEmpty) ...[
-          Text(
-            'Pending Actions',
-            style: theme.textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.w800,
-            ),
+        // Pending-queue items as flat rows.
+        const SectionLabel('Pending actions'),
+        if (_pendingActions.isEmpty)
+          _EmptyHint(
+            icon: Icons.cloud_done,
+            text: 'Nothing queued — everything is synced.',
+          )
+        else
+          FlatList(
+            children: [
+              for (var i = 0; i < _pendingActions.length; i++)
+                FieldRow(
+                  divider: i != _pendingActions.length - 1,
+                  leading: Icon(
+                    _actionIcon(_pendingActions[i].type),
+                    size: 20,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                  title: _actionLabel(_pendingActions[i].type),
+                  subtitle: _pendingActions[i].retryCount > 0
+                      ? 'Queued ${_formatCreatedAt(_pendingActions[i].createdAt)} · '
+                            '${_pendingActions[i].retryCount} failed '
+                            '${_pendingActions[i].retryCount == 1 ? 'attempt' : 'attempts'}'
+                      : 'Queued ${_formatCreatedAt(_pendingActions[i].createdAt)}',
+                  trailing: IconButton(
+                    tooltip: 'Discard',
+                    icon: const Icon(Icons.delete_outline, size: 20),
+                    onPressed: () => _deleteAction(_pendingActions[i]),
+                  ),
+                ),
+            ],
           ),
-          const SizedBox(height: 8),
-          ..._pendingActions.map(
-            (action) => Card(
-              child: ListTile(
-                dense: true,
-                leading: Icon(
-                  _actionIcon(action.type),
-                  color: theme.colorScheme.primary,
-                ),
-                title: Text(
-                  _actionLabel(action.type),
-                  style: const TextStyle(fontWeight: FontWeight.w700),
-                ),
-                subtitle: Text(
-                  action.retryCount > 0
-                      ? 'Queued ${_formatCreatedAt(action.createdAt)} · '
-                            '${action.retryCount} failed '
-                            '${action.retryCount == 1 ? 'attempt' : 'attempts'}'
-                      : 'Queued ${_formatCreatedAt(action.createdAt)}',
-                ),
-                trailing: IconButton(
-                  tooltip: 'Discard',
-                  icon: const Icon(Icons.delete_outline, size: 20),
-                  onPressed: () => _deleteAction(action),
-                ),
+
+        // Session info as flat rows.
+        if (session != null) ...[
+          const SectionLabel('Session'),
+          FlatList(
+            children: [
+              _SessionRow(label: 'Name', value: session.fullName),
+              _SessionRow(label: 'Role', value: session.role),
+              _SessionRow(label: 'Org', value: session.orgName),
+              _SessionRow(
+                label: 'Industry',
+                value: session.industry.isNotEmpty ? session.industry : '—',
               ),
-            ),
+              _SessionRow(
+                label: 'Mode',
+                value: session.isDemo ? 'Demo' : 'Live',
+                divider: false,
+              ),
+            ],
           ),
-          const SizedBox(height: 12),
         ],
-
-        // Session info
-        if (session != null)
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Session',
-                    style: theme.textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  _InfoRow(label: 'Name', value: session.fullName),
-                  _InfoRow(label: 'Role', value: session.role),
-                  _InfoRow(label: 'Org', value: session.orgName),
-                  _InfoRow(
-                    label: 'Industry',
-                    value: session.industry.isNotEmpty ? session.industry : '—',
-                  ),
-                  _InfoRow(
-                    label: 'Mode',
-                    value: session.isDemo ? 'Demo' : 'Live',
-                  ),
-                ],
-              ),
-            ),
-          ),
       ],
     );
   }
 }
 
-class _InfoRow extends StatelessWidget {
-  const _InfoRow({required this.label, required this.value});
+class _SessionRow extends StatelessWidget {
+  const _SessionRow({
+    required this.label,
+    required this.value,
+    this.divider = true,
+  });
   final String label;
   final String value;
+  final bool divider;
+
+  @override
+  Widget build(BuildContext context) {
+    return FieldRow(
+      dense: true,
+      divider: divider,
+      title: value,
+      trailing: Text(
+        label,
+        style: Theme.of(context).textTheme.bodySmall
+            ?.copyWith(color: FieldUi.muted),
+      ),
+    );
+  }
+}
+
+class _EmptyHint extends StatelessWidget {
+  const _EmptyHint({required this.icon, required this.text});
+  final IconData icon;
+  final String text;
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
-      child: Row(
+      padding: const EdgeInsets.symmetric(vertical: 24),
+      child: Column(
         children: [
-          SizedBox(
-            width: 80,
-            child: Text(
-              label,
-              style: Theme.of(
-                context,
-              ).textTheme.bodySmall?.copyWith(color: Colors.grey.shade600),
-            ),
-          ),
-          Expanded(
-            child: Text(value, style: Theme.of(context).textTheme.bodyMedium),
+          Icon(icon, size: 32, color: FieldUi.muted),
+          const SizedBox(height: 8),
+          Text(
+            text,
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.bodySmall
+                ?.copyWith(color: FieldUi.muted),
           ),
         ],
       ),

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../app/theme.dart';
 import '../auth/auth_controller.dart';
 import '../shared/field_widgets.dart';
 import 'order_builder_screen.dart';
@@ -206,6 +207,14 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
       return const Center(child: CircularProgressIndicator());
     }
 
+    final ordersCount = _visits
+        .where((v) => ((v['orderValue'] as num?)?.toDouble() ?? 0) > 0)
+        .length;
+    final orderedValue = _visits.fold<double>(
+      0,
+      (sum, v) => sum + ((v['orderValue'] as num?)?.toDouble() ?? 0),
+    );
+
     return RefreshIndicator(
       onRefresh: _loadVisits,
       child: PageScaffold(
@@ -213,108 +222,72 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
         subtitle: 'Record orders against active or completed visits.',
         children: [
           if (_error != null) ...[
-            Card(
-              color: Colors.red.shade50,
-              child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: Text(
-                  _error!,
-                  style: TextStyle(color: Colors.red.shade700),
-                ),
-              ),
+            StatusStrip(
+              icon: Icons.error_outline,
+              text: _error!,
+              color: Colors.red.shade700,
             ),
             const SizedBox(height: 12),
           ],
           if (session?.isDemo == true)
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: Row(
-                  children: [
-                    Icon(Icons.info_outline, color: theme.colorScheme.primary),
-                    const SizedBox(width: 10),
-                    const Expanded(
-                      child: Text(
-                        'Login with real credentials to record orders.',
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+            StatusStrip(
+              icon: Icons.info_outline,
+              text: 'Login with real credentials to record orders.',
+              color: theme.colorScheme.primary,
             )
           else if (_visits.isEmpty)
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: Row(
-                  children: [
-                    Icon(Icons.info_outline, color: Colors.grey.shade400),
-                    const SizedBox(width: 10),
-                    const Expanded(
-                      child: Text(
-                        'Check in to a visit first. Orders can be recorded during or after a visit.',
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+            StatusStrip(
+              icon: Icons.info_outline,
+              text:
+                  'Check in to a visit first. Orders can be recorded during or after a visit.',
+              color: FieldUi.muted,
             )
-          else
-            ..._visits.map((visit) {
-              final name =
-                  visit['contactName']?.toString() ??
-                  visit['contactId']?.toString() ??
-                  'Customer';
-              final status = visit['status']?.toString() ?? '';
-              final existingOrder = (visit['orderValue'] as num?)?.toDouble();
-
-              return Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(14),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              name,
-                              style: theme.textTheme.titleMedium?.copyWith(
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ),
-                          Text(
-                            status.replaceAll('_', ' '),
-                            style: theme.textTheme.bodySmall,
-                          ),
-                        ],
-                      ),
-                      if (existingOrder != null && existingOrder > 0) ...[
-                        const SizedBox(height: 6),
-                        Text(
-                          'Current order: ₹${existingOrder.toStringAsFixed(0)}',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                      const SizedBox(height: 10),
-                      FilledButton.icon(
-                        onPressed: () => _showOrderOptions(visit),
-                        icon: const Icon(Icons.add_shopping_cart, size: 18),
-                        label: Text(
-                          existingOrder != null && existingOrder > 0
-                              ? 'Update Order'
-                              : 'Record Order',
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            }),
+          else ...[
+            MetricStrip(
+              items: [
+                MetricItem('Visits', '${_visits.length}'),
+                MetricItem('With order', '$ordersCount'),
+                MetricItem('Ordered', '₹${orderedValue.toStringAsFixed(0)}'),
+              ],
+            ),
+            const SectionLabel('Visits'),
+            FlatList(
+              children: [
+                for (var i = 0; i < _visits.length; i++)
+                  _buildVisitRow(_visits[i], i == _visits.length - 1),
+              ],
+            ),
+          ],
         ],
+      ),
+    );
+  }
+
+  Widget _buildVisitRow(Map<String, dynamic> visit, bool isLast) {
+    final name =
+        visit['contactName']?.toString() ??
+        visit['contactId']?.toString() ??
+        'Customer';
+    final status = visit['status']?.toString() ?? '';
+    final existingOrder = (visit['orderValue'] as num?)?.toDouble();
+    final hasOrder = existingOrder != null && existingOrder > 0;
+
+    return FieldRow(
+      divider: !isLast,
+      title: name,
+      subtitle: hasOrder
+          ? '${status.replaceAll('_', ' ')} · ₹${existingOrder.toStringAsFixed(0)}'
+          : status.replaceAll('_', ' '),
+      onTap: () => _showOrderOptions(visit),
+      trailing: FilledButton.icon(
+        onPressed: () => _showOrderOptions(visit),
+        icon: const Icon(Icons.add_shopping_cart, size: 16),
+        label: Text(hasOrder ? 'Update' : 'Order'),
+        style: FilledButton.styleFrom(
+          minimumSize: const Size(0, 36),
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        ),
       ),
     );
   }

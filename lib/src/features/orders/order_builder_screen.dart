@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../auth/auth_controller.dart';
+import '../shared/field_widgets.dart';
 
 /// Builds a real line-item Sales Order against the ERP catalog and links
 /// it to the field visit.
@@ -441,18 +442,32 @@ class _OrderBuilderScreenState extends ConsumerState<OrderBuilderScreen> {
                       child: Text('No items found.'),
                     ),
                   ),
-                ..._results.map((item) => _buildResultTile(item, theme)),
+                if (_results.isNotEmpty)
+                  FlatList(
+                    children: [
+                      for (var i = 0; i < _results.length; i++)
+                        _buildResultRow(
+                          _results[i],
+                          theme,
+                          divider: i != _results.length - 1,
+                        ),
+                    ],
+                  ),
 
                 if (_cart.isNotEmpty) ...[
-                  const SizedBox(height: 12),
-                  Text(
+                  SectionLabel(
                     'Cart (${_cart.length} item${_cart.length == 1 ? '' : 's'})',
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w800,
-                    ),
                   ),
-                  const SizedBox(height: 6),
-                  ..._cart.map((line) => _buildCartLine(line, theme)),
+                  FlatList(
+                    children: [
+                      for (var i = 0; i < _cart.length; i++)
+                        _buildCartRow(
+                          _cart[i],
+                          theme,
+                          divider: i != _cart.length - 1,
+                        ),
+                    ],
+                  ),
                 ] else if (_searchCtl.text.trim().isEmpty) ...[
                   Card(
                     child: Padding(
@@ -528,7 +543,11 @@ class _OrderBuilderScreenState extends ConsumerState<OrderBuilderScreen> {
     );
   }
 
-  Widget _buildResultTile(Map<String, dynamic> item, ThemeData theme) {
+  Widget _buildResultRow(
+    Map<String, dynamic> item,
+    ThemeData theme, {
+    required bool divider,
+  }) {
     final name = item['name']?.toString() ?? 'Item';
     final sku = item['sku']?.toString();
     final salePrice = (item['salePrice'] as num?)?.toDouble() ?? 0;
@@ -536,117 +555,88 @@ class _OrderBuilderScreenState extends ConsumerState<OrderBuilderScreen> {
     final trackInventory = item['trackInventory'] == true;
     final inCart = _cart.any((l) => l.itemId == item['id']?.toString());
 
-    return Card(
-      child: ListTile(
-        dense: true,
-        title: Text(
-          name,
-          style: theme.textTheme.titleSmall?.copyWith(
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-        subtitle: Text(
-          [
-            if (sku != null && sku.isNotEmpty) sku,
-            _money(salePrice),
-            if (trackInventory && onHand != null)
-              '${onHand.toStringAsFixed(onHand == onHand.roundToDouble() ? 0 : 1)} on hand',
-          ].join(' · '),
-          style: theme.textTheme.bodySmall,
-        ),
-        trailing: Icon(
-          inCart ? Icons.add_circle : Icons.add_circle_outline,
-          color: theme.colorScheme.primary,
-        ),
-        onTap: () => _addToCart(item),
+    return FieldRow(
+      divider: divider,
+      title: name,
+      subtitle: [
+        if (sku != null && sku.isNotEmpty) sku,
+        _money(salePrice),
+        if (trackInventory && onHand != null)
+          '${onHand.toStringAsFixed(onHand == onHand.roundToDouble() ? 0 : 1)} on hand',
+      ].join(' · '),
+      onTap: () => _addToCart(item),
+      trailing: Icon(
+        inCart ? Icons.add_circle : Icons.add_circle_outline,
+        color: theme.colorScheme.primary,
       ),
     );
   }
 
-  Widget _buildCartLine(_CartLine line, ThemeData theme) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    line.name,
-                    style: theme.textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-                Text(
-                  _money(line.lineTotal),
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ],
+  Widget _buildCartRow(
+    _CartLine line,
+    ThemeData theme, {
+    required bool divider,
+  }) {
+    return FieldRow(
+      divider: divider,
+      title: line.name,
+      subtitle: '${_money(line.effectiveRate)} × ${line.quantity}  =  '
+          '${_money(line.lineTotal)}',
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          IconButton(
+            visualDensity: VisualDensity.compact,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
+            icon: Icon(
+              line.quantity == 1
+                  ? Icons.delete_outline
+                  : Icons.remove_circle_outline,
+              size: 22,
+              color: line.quantity == 1 ? Colors.red : theme.colorScheme.primary,
             ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                // Qty stepper
-                IconButton(
-                  visualDensity: VisualDensity.compact,
-                  icon: Icon(
-                    line.quantity == 1
-                        ? Icons.delete_outline
-                        : Icons.remove_circle_outline,
-                    size: 22,
-                    color: line.quantity == 1
-                        ? Colors.red
-                        : theme.colorScheme.primary,
-                  ),
-                  onPressed: () => _changeQty(line, -1),
-                ),
-                SizedBox(
-                  width: 32,
-                  child: Text(
-                    '${line.quantity}',
-                    textAlign: TextAlign.center,
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ),
-                IconButton(
-                  visualDensity: VisualDensity.compact,
-                  icon: Icon(
-                    Icons.add_circle_outline,
-                    size: 22,
-                    color: theme.colorScheme.primary,
-                  ),
-                  onPressed: () => _changeQty(line, 1),
-                ),
-                const Spacer(),
-                // Editable rate
-                SizedBox(
-                  width: 110,
-                  child: TextField(
-                    controller: line.rateCtl,
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
-                    ),
-                    textAlign: TextAlign.right,
-                    decoration: const InputDecoration(
-                      labelText: 'Rate',
-                      prefixText: '₹ ',
-                      isDense: true,
-                      border: OutlineInputBorder(),
-                    ),
-                    onChanged: (_) => setState(() {}),
-                  ),
-                ),
-              ],
+            onPressed: () => _changeQty(line, -1),
+          ),
+          SizedBox(
+            width: 28,
+            child: Text(
+              '${line.quantity}',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w800,
+              ),
             ),
-          ],
-        ),
+          ),
+          IconButton(
+            visualDensity: VisualDensity.compact,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
+            icon: Icon(
+              Icons.add_circle_outline,
+              size: 22,
+              color: theme.colorScheme.primary,
+            ),
+            onPressed: () => _changeQty(line, 1),
+          ),
+          const SizedBox(width: 8),
+          SizedBox(
+            width: 88,
+            child: TextField(
+              controller: line.rateCtl,
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              textAlign: TextAlign.right,
+              decoration: const InputDecoration(
+                labelText: 'Rate',
+                prefixText: '₹ ',
+                isDense: true,
+              ),
+              onChanged: (_) => setState(() {}),
+            ),
+          ),
+        ],
       ),
     );
   }

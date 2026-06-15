@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../app/theme.dart';
 import '../auth/auth_controller.dart';
+import '../shared/field_widgets.dart';
 
 /// Monthly Tour Plan (MTP): the MR proposes next month's working day by
 /// day, submits it, and the manager approves or rejects from the ERP.
@@ -114,31 +116,38 @@ class _TourPlanScreenState extends ConsumerState<TourPlanScreen> {
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _plans.isEmpty
-              ? const Center(child: Text('No tour plans yet'))
+              ? const _EmptyState(
+                  icon: Icons.calendar_month,
+                  text: 'No tour plans yet',
+                )
               : RefreshIndicator(
                   onRefresh: _load,
-                  child: ListView.builder(
-                    padding: const EdgeInsets.all(12),
-                    itemCount: _plans.length,
-                    itemBuilder: (context, i) {
-                      final plan = _plans[i];
-                      final status = plan['status']?.toString() ?? 'DRAFT';
-                      return Card(
-                        child: ListTile(
-                          leading: const Icon(Icons.calendar_month),
-                          title: Text(_monthLabel(
-                              DateTime.parse(plan['planMonth'].toString()))),
-                          subtitle: status == 'REJECTED' &&
-                                  plan['rejectionReason'] != null
-                              ? Text('Rejected: ${plan['rejectionReason']}')
-                              : null,
-                          trailing: _StatusChip(status: status),
-                          onTap: () => _openPlan(plan['id'].toString()),
-                        ),
-                      );
-                    },
+                  child: ListView(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+                    children: [
+                      const SectionLabel('My tour plans'),
+                      FlatList(
+                        children: [
+                          for (var i = 0; i < _plans.length; i++)
+                            _planRow(_plans[i], i != _plans.length - 1),
+                        ],
+                      ),
+                    ],
                   ),
                 ),
+    );
+  }
+
+  Widget _planRow(Map<String, dynamic> plan, bool divider) {
+    final status = plan['status']?.toString() ?? 'DRAFT';
+    final rejected = status == 'REJECTED' && plan['rejectionReason'] != null;
+    return FieldRow(
+      divider: divider,
+      leading: const Icon(Icons.calendar_month, size: 20, color: FieldUi.muted),
+      title: _monthLabel(DateTime.parse(plan['planMonth'].toString())),
+      subtitle: rejected ? 'Rejected: ${plan['rejectionReason']}' : null,
+      trailing: _StatusChip(status: status),
+      onTap: () => _openPlan(plan['id'].toString()),
     );
   }
 }
@@ -298,7 +307,13 @@ class _TourPlanDetailScreenState extends ConsumerState<TourPlanDetailScreen> {
         title: Text(_plan != null
             ? _monthLabel(DateTime.parse(_plan!['planMonth'].toString()))
             : 'Tour Plan'),
-        actions: [if (_plan != null) _StatusChip(status: status)],
+        actions: [
+          if (_plan != null)
+            Padding(
+              padding: const EdgeInsets.only(right: 12),
+              child: Center(child: _StatusChip(status: status)),
+            ),
+        ],
       ),
       floatingActionButton: _editable
           ? FloatingActionButton.extended(
@@ -333,36 +348,46 @@ class _TourPlanDetailScreenState extends ConsumerState<TourPlanDetailScreen> {
                   ),
                 Expanded(
                   child: _entries.isEmpty
-                      ? const Center(child: Text('No days planned yet'))
-                      : ListView.builder(
-                          padding: const EdgeInsets.all(12),
-                          itemCount: _entries.length,
-                          itemBuilder: (context, i) {
-                            final e = _entries[i];
-                            return Card(
-                              child: ListTile(
-                                leading: const Icon(Icons.event),
-                                title: Text(
-                                    '${e['planDate']} — ${e['activityType']}'),
-                                subtitle: Text([e['area'], e['notes']]
-                                    .where((x) =>
-                                        x != null &&
-                                        x.toString().trim().isNotEmpty)
-                                    .join(' • ')),
-                                trailing: _editable
-                                    ? IconButton(
-                                        icon: const Icon(Icons.delete_outline),
-                                        onPressed: () => _removeEntry(
-                                            e['id'].toString()),
-                                      )
-                                    : null,
-                              ),
-                            );
-                          },
+                      ? const _EmptyState(
+                          icon: Icons.event_busy,
+                          text: 'No days planned yet',
+                        )
+                      : ListView(
+                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+                          children: [
+                            const SectionLabel('Planned days'),
+                            FlatList(
+                              children: [
+                                for (var i = 0; i < _entries.length; i++)
+                                  _entryRow(
+                                    _entries[i],
+                                    i != _entries.length - 1,
+                                  ),
+                              ],
+                            ),
+                          ],
                         ),
                 ),
               ],
             ),
+    );
+  }
+
+  Widget _entryRow(Map<String, dynamic> e, bool divider) {
+    final subtitle = [e['area'], e['notes']]
+        .where((x) => x != null && x.toString().trim().isNotEmpty)
+        .join(' • ');
+    return FieldRow(
+      divider: divider,
+      leading: const Icon(Icons.event, size: 20, color: FieldUi.muted),
+      title: '${e['planDate']} — ${e['activityType']}',
+      subtitle: subtitle.isEmpty ? null : subtitle,
+      trailing: _editable
+          ? IconButton(
+              icon: const Icon(Icons.delete_outline, size: 20),
+              onPressed: () => _removeEntry(e['id'].toString()),
+            )
+          : null,
     );
   }
 }
@@ -380,11 +405,45 @@ class _StatusChip extends StatelessWidget {
       'REJECTED' => Colors.red,
       _ => Colors.grey,
     };
-    return Chip(
-      label: Text(status, style: const TextStyle(fontSize: 11)),
-      backgroundColor: color.withValues(alpha: 0.15),
-      side: BorderSide(color: color),
-      visualDensity: VisualDensity.compact,
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(FieldUi.radius),
+        border: Border.all(color: color.withValues(alpha: 0.4)),
+      ),
+      child: Text(
+        status,
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+          color: color,
+        ),
+      ),
+    );
+  }
+}
+
+class _EmptyState extends StatelessWidget {
+  const _EmptyState({required this.icon, required this.text});
+  final IconData icon;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 36, color: FieldUi.muted),
+          const SizedBox(height: 10),
+          Text(
+            text,
+            style: Theme.of(context).textTheme.bodyMedium
+                ?.copyWith(color: FieldUi.muted),
+          ),
+        ],
+      ),
     );
   }
 }

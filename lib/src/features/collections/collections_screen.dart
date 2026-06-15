@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../app/theme.dart';
 import '../auth/auth_controller.dart';
 import '../shared/field_widgets.dart';
 
@@ -135,6 +136,14 @@ class _CollectionsScreenState extends ConsumerState<CollectionsScreen> {
       return const Center(child: CircularProgressIndicator());
     }
 
+    final collectedCount = _visits
+        .where((v) => ((v['collectionAmount'] as num?)?.toDouble() ?? 0) > 0)
+        .length;
+    final collectedValue = _visits.fold<double>(
+      0,
+      (sum, v) => sum + ((v['collectionAmount'] as num?)?.toDouble() ?? 0),
+    );
+
     return RefreshIndicator(
       onRefresh: _loadVisits,
       child: PageScaffold(
@@ -142,110 +151,77 @@ class _CollectionsScreenState extends ConsumerState<CollectionsScreen> {
         subtitle: 'Record cash and payment collections from today\'s visits.',
         children: [
           if (_error != null) ...[
-            Card(
-              color: Colors.red.shade50,
-              child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: Text(
-                  _error!,
-                  style: TextStyle(color: Colors.red.shade700),
-                ),
-              ),
+            StatusStrip(
+              icon: Icons.error_outline,
+              text: _error!,
+              color: Colors.red.shade700,
             ),
             const SizedBox(height: 12),
           ],
           if (session?.isDemo == true)
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: Row(
-                  children: [
-                    Icon(Icons.info_outline, color: theme.colorScheme.primary),
-                    const SizedBox(width: 10),
-                    const Expanded(
-                      child: Text(
-                        'Login with real credentials to record collections.',
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+            StatusStrip(
+              icon: Icons.info_outline,
+              text: 'Login with real credentials to record collections.',
+              color: theme.colorScheme.primary,
             )
           else if (_visits.isEmpty)
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: Row(
-                  children: [
-                    Icon(Icons.info_outline, color: Colors.grey.shade400),
-                    const SizedBox(width: 10),
-                    const Expanded(
-                      child: Text(
-                        'Check in to a visit first. Collections can be recorded during or after a visit.',
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+            StatusStrip(
+              icon: Icons.info_outline,
+              text:
+                  'Check in to a visit first. Collections can be recorded during or after a visit.',
+              color: FieldUi.muted,
             )
-          else
-            ..._visits.map((visit) {
-              final visitId = visit['id']?.toString() ?? '';
-              final name =
-                  visit['contactName']?.toString() ??
-                  visit['contactId']?.toString() ??
-                  'Customer';
-              final status = visit['status']?.toString() ?? '';
-              final existing = (visit['collectionAmount'] as num?)?.toDouble();
-
-              return Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(14),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              name,
-                              style: theme.textTheme.titleMedium?.copyWith(
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ),
-                          Text(
-                            status.replaceAll('_', ' '),
-                            style: theme.textTheme.bodySmall,
-                          ),
-                        ],
-                      ),
-                      if (existing != null && existing > 0) ...[
-                        const SizedBox(height: 6),
-                        Text(
-                          'Collected: ₹${existing.toStringAsFixed(0)}',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: Colors.green,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                      const SizedBox(height: 10),
-                      FilledButton.icon(
-                        onPressed: () => _recordCollection(visitId, name),
-                        icon: const Icon(Icons.payments, size: 18),
-                        label: Text(
-                          existing != null && existing > 0
-                              ? 'Update Collection'
-                              : 'Record Collection',
-                        ),
-                      ),
-                    ],
-                  ),
+          else ...[
+            MetricStrip(
+              items: [
+                MetricItem('Visits', '${_visits.length}'),
+                MetricItem('Collected', '$collectedCount'),
+                MetricItem(
+                  'Amount',
+                  '₹${collectedValue.toStringAsFixed(0)}',
+                  color: Colors.green,
                 ),
-              );
-            }),
+              ],
+            ),
+            const SectionLabel('Visits'),
+            FlatList(
+              children: [
+                for (var i = 0; i < _visits.length; i++)
+                  _buildVisitRow(_visits[i], i == _visits.length - 1),
+              ],
+            ),
+          ],
         ],
+      ),
+    );
+  }
+
+  Widget _buildVisitRow(Map<String, dynamic> visit, bool isLast) {
+    final visitId = visit['id']?.toString() ?? '';
+    final name =
+        visit['contactName']?.toString() ??
+        visit['contactId']?.toString() ??
+        'Customer';
+    final status = visit['status']?.toString() ?? '';
+    final existing = (visit['collectionAmount'] as num?)?.toDouble();
+    final hasCollection = existing != null && existing > 0;
+
+    return FieldRow(
+      divider: !isLast,
+      title: name,
+      subtitle: hasCollection
+          ? '${status.replaceAll('_', ' ')} · ₹${existing.toStringAsFixed(0)}'
+          : status.replaceAll('_', ' '),
+      onTap: () => _recordCollection(visitId, name),
+      trailing: FilledButton.icon(
+        onPressed: () => _recordCollection(visitId, name),
+        icon: const Icon(Icons.payments, size: 16),
+        label: Text(hasCollection ? 'Update' : 'Collect'),
+        style: FilledButton.styleFrom(
+          minimumSize: const Size(0, 36),
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        ),
       ),
     );
   }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../app/theme.dart';
 import '../auth/auth_controller.dart';
 import '../shared/field_widgets.dart';
 
@@ -148,6 +149,7 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen> {
       if (!mounted) return;
       _amountController.clear();
       _notesController.clear();
+      Navigator.of(context).maybePop();
       _showSnack('Expense recorded.');
       await _load();
     } catch (e) {
@@ -164,66 +166,51 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen> {
     ).showSnackBar(SnackBar(content: Text(message)));
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final session = ref.watch(authControllerProvider).session;
-    final theme = Theme.of(context);
-    final isDemo = session?.isDemo == true;
-
-    if (_loading) {
-      return const Center(child: CircularProgressIndicator());
+  double _expenseTotal() {
+    var total = 0.0;
+    for (final expense in _expenses.whereType<Map<String, dynamic>>()) {
+      total +=
+          (expense['total'] as num?)?.toDouble() ??
+          (expense['amount'] as num?)?.toDouble() ??
+          0;
     }
+    return total;
+  }
 
-    return RefreshIndicator(
-      onRefresh: _load,
-      child: PageScaffold(
-        title: 'Expenses',
-        subtitle:
-            'Capture travel, food, lodging, and misc expenses on the go.',
-        children: [
-          if (isDemo) ...[
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: Row(
-                  children: [
-                    Icon(Icons.info_outline, color: theme.colorScheme.primary),
-                    const SizedBox(width: 10),
-                    const Expanded(
-                      child: Text(
-                        'Demo mode — login with your Katasticho ERP '
-                        'credentials to record real expenses.',
+  void _openForm() {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (sheetContext) {
+        final viewInsets = MediaQuery.of(sheetContext).viewInsets.bottom;
+        // Local setState for the sheet so the dropdown / submit spinner update.
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            return Padding(
+              padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + viewInsets),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 36,
+                      height: 4,
+                      margin: const EdgeInsets.only(bottom: 12),
+                      decoration: BoxDecoration(
+                        color: FieldUi.hairline,
+                        borderRadius: BorderRadius.circular(2),
                       ),
                     ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 12),
-          ],
-          if (_error != null) ...[
-            Card(
-              color: Colors.red.shade50,
-              child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: Text(
-                  _error!,
-                  style: TextStyle(color: Colors.red.shade700),
-                ),
-              ),
-            ),
-            const SizedBox(height: 12),
-          ],
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(14),
-              child: Column(
-                children: [
+                  ),
+                  const SectionLabel('Record expense'),
                   DropdownButtonFormField<String>(
                     initialValue: _category,
-                    decoration: const InputDecoration(
-                      labelText: 'Expense type',
-                    ),
+                    decoration: const InputDecoration(labelText: 'Expense type'),
                     items: _categories
                         .map(
                           (c) => DropdownMenuItem(
@@ -233,7 +220,9 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen> {
                         )
                         .toList(),
                     onChanged: (value) {
-                      if (value != null) setState(() => _category = value);
+                      if (value != null) {
+                        setSheetState(() => _category = value);
+                      }
                     },
                   ),
                   const SizedBox(height: 12),
@@ -265,58 +254,113 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen> {
                     ),
                   ),
                   const SizedBox(height: 12),
-                  SizedBox(
-                    width: double.infinity,
-                    child: FilledButton.icon(
-                      onPressed: (isDemo || _submitting) ? null : _submit,
-                      icon: _submitting
-                          ? const SizedBox(
-                              height: 18,
-                              width: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.check),
-                      label: Text(
-                        _submitting ? 'Recording…' : 'Record expense',
-                      ),
-                    ),
+                  FilledButton.icon(
+                    onPressed: _submitting
+                        ? null
+                        : () async {
+                            await _submit();
+                            setSheetState(() {});
+                          },
+                    icon: _submitting
+                        ? const SizedBox(
+                            height: 18,
+                            width: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.check),
+                    label: Text(_submitting ? 'Recording…' : 'Record expense'),
                   ),
                 ],
               ),
-            ),
-          ),
-          const SizedBox(height: 20),
-          Text(
-            "Today's Expenses",
-            style: theme.textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-          const SizedBox(height: 8),
-          if (_expenses.isEmpty)
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: Row(
-                  children: [
-                    Icon(Icons.receipt_long, color: Colors.grey.shade400),
-                    const SizedBox(width: 10),
-                    const Expanded(
-                      child: Text('No expenses recorded today.'),
-                    ),
-                  ],
-                ),
-              ),
-            )
-          else
-            ..._expenses.whereType<Map<String, dynamic>>().map(_expenseCard),
-        ],
-      ),
+            );
+          },
+        );
+      },
     );
   }
 
-  Widget _expenseCard(Map<String, dynamic> expense) {
+  @override
+  Widget build(BuildContext context) {
+    final session = ref.watch(authControllerProvider).session;
     final theme = Theme.of(context);
+    final isDemo = session?.isDemo == true;
+
+    if (_loading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    final expenses = _expenses.whereType<Map<String, dynamic>>().toList();
+
+    return Scaffold(
+      body: RefreshIndicator(
+        onRefresh: _load,
+        child: PageScaffold(
+          title: 'Expenses',
+          subtitle:
+              'Capture travel, food, lodging, and misc expenses on the go.',
+          children: [
+            if (isDemo) ...[
+              StatusStrip(
+                icon: Icons.info_outline,
+                text:
+                    'Demo mode — login with your Katasticho ERP credentials to '
+                    'record real expenses.',
+                color: theme.colorScheme.primary,
+              ),
+              const SizedBox(height: 12),
+            ],
+            if (_error != null) ...[
+              StatusStrip(
+                icon: Icons.error_outline,
+                text: _error!,
+                color: Colors.red.shade700,
+              ),
+              const SizedBox(height: 12),
+            ],
+            if (expenses.isNotEmpty) ...[
+              MetricStrip(
+                items: [
+                  MetricItem('Entries', '${expenses.length}'),
+                  MetricItem('Total', _formatCurrency(_expenseTotal())),
+                ],
+              ),
+            ],
+            const SectionLabel("Today's expenses"),
+            if (expenses.isEmpty)
+              FlatList(
+                children: [
+                  FieldRow(
+                    leading: Icon(
+                      Icons.receipt_long,
+                      color: Colors.grey.shade400,
+                    ),
+                    title: 'No expenses recorded today.',
+                    subtitle: 'Tap + to add your first expense.',
+                    divider: false,
+                  ),
+                ],
+              )
+            else
+              FlatList(
+                children: [
+                  for (var i = 0; i < expenses.length; i++)
+                    _expenseRow(expenses[i], last: i == expenses.length - 1),
+                ],
+              ),
+          ],
+        ),
+      ),
+      floatingActionButton: isDemo
+          ? null
+          : FloatingActionButton.extended(
+              onPressed: _openForm,
+              icon: const Icon(Icons.add),
+              label: const Text('Add expense'),
+            ),
+    );
+  }
+
+  Widget _expenseRow(Map<String, dynamic> expense, {required bool last}) {
     final category = expense['category']?.toString() ?? 'MISC';
     final description = expense['description']?.toString() ?? '';
     final number = expense['expenseNumber']?.toString() ?? '';
@@ -327,45 +371,24 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen> {
         0;
     final color = _categoryColor(category);
 
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Row(
-          children: [
-            CircleAvatar(
-              backgroundColor: color.withValues(alpha: 0.14),
-              foregroundColor: color,
-              child: Icon(_categoryIcon(category)),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    description.isNotEmpty
-                        ? description
-                        : _categoryLabel(category),
-                    style: theme.textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  Text(
-                    [
-                      if (number.isNotEmpty) number,
-                      if (status.isNotEmpty) status,
-                    ].join(' · '),
-                    style: theme.textTheme.bodySmall,
-                  ),
-                ],
-              ),
-            ),
-            Text(
-              _formatCurrency(amount),
-              style: const TextStyle(fontWeight: FontWeight.w800),
-            ),
-          ],
-        ),
+    final subtitle = [
+      if (number.isNotEmpty) number,
+      if (status.isNotEmpty) status,
+    ].join(' · ');
+
+    return FieldRow(
+      divider: !last,
+      leading: CircleAvatar(
+        radius: 18,
+        backgroundColor: color.withValues(alpha: 0.14),
+        foregroundColor: color,
+        child: Icon(_categoryIcon(category), size: 18),
+      ),
+      title: description.isNotEmpty ? description : _categoryLabel(category),
+      subtitle: subtitle.isEmpty ? null : subtitle,
+      trailing: Text(
+        _formatCurrency(amount),
+        style: const TextStyle(fontWeight: FontWeight.w800),
       ),
     );
   }

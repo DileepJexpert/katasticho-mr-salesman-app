@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../app/theme.dart';
 import '../auth/auth_controller.dart';
 import '../shared/field_widgets.dart';
 
@@ -75,23 +76,12 @@ class _PartiesScreenState extends ConsumerState<PartiesScreen> {
         title: 'Parties',
         subtitle: 'Demo mode — login with real credentials to see live data.',
         children: [
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(14),
-              child: Row(
-                children: [
-                  Icon(Icons.info_outline, color: theme.colorScheme.primary),
-                  const SizedBox(width: 10),
-                  const Expanded(
-                    child: Text(
-                      'Demo mode shows sample data. Login with your '
-                      'Katasticho ERP credentials to browse customers, '
-                      'vendors, and their outstanding balances.',
-                    ),
-                  ),
-                ],
-              ),
-            ),
+          StatusStrip(
+            icon: Icons.info_outline,
+            color: theme.colorScheme.primary,
+            text:
+                'Demo mode shows sample data. Login with your Katasticho ERP '
+                'credentials to browse customers, vendors, and balances.',
           ),
         ],
       );
@@ -129,15 +119,10 @@ class _PartiesScreenState extends ConsumerState<PartiesScreen> {
           ),
           const SizedBox(height: 12),
           if (_error != null) ...[
-            Card(
-              color: Colors.red.shade50,
-              child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: Text(
-                  _error!,
-                  style: TextStyle(color: Colors.red.shade700),
-                ),
-              ),
+            StatusStrip(
+              icon: Icons.error_outline,
+              color: const Color(0xFFDC2626),
+              text: _error!,
             ),
             const SizedBox(height: 12),
           ],
@@ -147,48 +132,64 @@ class _PartiesScreenState extends ConsumerState<PartiesScreen> {
               child: Center(child: CircularProgressIndicator()),
             )
           else if (_contacts.isEmpty)
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: Row(
-                  children: [
-                    Icon(Icons.people_outline, color: Colors.grey.shade400),
-                    const SizedBox(width: 10),
-                    const Expanded(child: Text('No parties found.')),
-                  ],
-                ),
-              ),
+            const FieldRow(
+              leading: Icon(Icons.people_outline, color: FieldUi.muted),
+              title: 'No parties found.',
+              divider: false,
             )
-          else
-            ..._contacts.map(
-              (raw) => _ContactCard(
-                contact: raw as Map<String, dynamic>,
-                onTap: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => _ContactDetailScreen(
-                        contactId: raw['id']?.toString() ?? '',
-                        displayName: raw['displayName']?.toString() ?? 'Party',
-                      ),
-                    ),
-                  );
-                },
-              ),
+          else ...[
+            MetricStrip(items: _summaryItems()),
+            const SizedBox(height: 12),
+            SectionLabel('${_contacts.length} parties'),
+            FlatList(
+              children: [
+                for (var i = 0; i < _contacts.length; i++)
+                  _contactRow(
+                    context,
+                    _contacts[i] as Map<String, dynamic>,
+                    last: i == _contacts.length - 1,
+                  ),
+              ],
             ),
+          ],
         ],
       ),
     );
   }
-}
 
-class _ContactCard extends StatelessWidget {
-  const _ContactCard({required this.contact, required this.onTap});
+  /// Single financial summary band across all loaded parties.
+  List<MetricItem> _summaryItems() {
+    double receivable = 0;
+    double payable = 0;
+    var withDues = 0;
+    for (final raw in _contacts) {
+      final c = raw as Map<String, dynamic>;
+      final ar = (c['outstandingAr'] as num?)?.toDouble() ?? 0;
+      final ap = (c['outstandingAp'] as num?)?.toDouble() ?? 0;
+      receivable += ar;
+      payable += ap;
+      if (ar > 0) withDues++;
+    }
+    return [
+      MetricItem(
+        'Receivable',
+        formatCurrencyCompact(receivable),
+        color: receivable > 0 ? const Color(0xFFDC2626) : FieldUi.ink,
+      ),
+      MetricItem(
+        'Payable',
+        formatCurrencyCompact(payable),
+        color: const Color(0xFFF59E0B),
+      ),
+      MetricItem('With dues', '$withDues'),
+    ];
+  }
 
-  final Map<String, dynamic> contact;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
+  Widget _contactRow(
+    BuildContext context,
+    Map<String, dynamic> contact, {
+    required bool last,
+  }) {
     final theme = Theme.of(context);
     final name = contact['displayName']?.toString() ?? 'Unnamed';
     final type = contact['contactType']?.toString() ?? 'CUSTOMER';
@@ -197,71 +198,55 @@ class _ContactCard extends StatelessWidget {
         : (contact['phone']?.toString() ?? '');
     final city = contact['billingCity']?.toString() ?? '';
     final outstanding = (contact['outstandingAr'] as num?)?.toDouble() ?? 0;
-
     final color = _contactTypeColor(type);
 
     final subtitleParts = <String>[
+      _contactTypeLabel(type),
       if (phone.isNotEmpty) phone,
       if (city.isNotEmpty) city,
     ];
 
-    return Card(
-      child: InkWell(
-        borderRadius: BorderRadius.circular(12),
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Row(
+    final Widget trailing = outstanding > 0
+        ? Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              CircleAvatar(
-                backgroundColor: color.withValues(alpha: 0.14),
-                foregroundColor: color,
-                child: Icon(_contactTypeIcon(type)),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      name,
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    if (subtitleParts.isNotEmpty)
-                      Text(
-                        subtitleParts.join(' · '),
-                        style: theme.textTheme.bodySmall,
-                      ),
-                    const SizedBox(height: 2),
-                    Text(
-                      _contactTypeLabel(type),
-                      style: theme.textTheme.bodySmall?.copyWith(color: color),
-                    ),
-                  ],
+              Text(
+                formatCurrencyCompact(outstanding),
+                style: const TextStyle(
+                  color: Color(0xFFDC2626),
+                  fontWeight: FontWeight.w800,
                 ),
               ),
-              if (outstanding > 0)
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Text(
-                      formatCurrencyCompact(outstanding),
-                      style: const TextStyle(
-                        color: Colors.red,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    Text('due', style: theme.textTheme.bodySmall),
-                  ],
-                )
-              else
-                const Icon(Icons.chevron_right),
+              Text(
+                'due',
+                style: theme.textTheme.bodySmall?.copyWith(color: FieldUi.muted),
+              ),
             ],
-          ),
-        ),
+          )
+        : const Icon(Icons.chevron_right, color: FieldUi.muted);
+
+    return FieldRow(
+      divider: !last,
+      leading: CircleAvatar(
+        radius: 18,
+        backgroundColor: color.withValues(alpha: 0.14),
+        foregroundColor: color,
+        child: Icon(_contactTypeIcon(type), size: 18),
       ),
+      title: name,
+      subtitle: subtitleParts.join(' · '),
+      trailing: trailing,
+      onTap: () {
+        Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => _ContactDetailScreen(
+              contactId: contact['id']?.toString() ?? '',
+              displayName: contact['displayName']?.toString() ?? 'Party',
+            ),
+          ),
+        );
+      },
     );
   }
 }
@@ -309,7 +294,6 @@ class _ContactDetailScreenState extends ConsumerState<_ContactDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final name = _contact['displayName']?.toString() ?? widget.displayName;
     final receivable = (_contact['outstandingAr'] as num?)?.toDouble() ?? 0;
     final payable = (_contact['outstandingAp'] as num?)?.toDouble() ?? 0;
@@ -327,106 +311,69 @@ class _ContactDetailScreenState extends ConsumerState<_ContactDetailScreen> {
                 padding: const EdgeInsets.all(16),
                 children: [
                   if (_error != null) ...[
-                    Card(
-                      color: Colors.red.shade50,
-                      child: Padding(
-                        padding: const EdgeInsets.all(14),
-                        child: Text(
-                          _error!,
-                          style: TextStyle(color: Colors.red.shade700),
-                        ),
-                      ),
+                    StatusStrip(
+                      icon: Icons.error_outline,
+                      color: const Color(0xFFDC2626),
+                      text: _error!,
                     ),
                     const SizedBox(height: 12),
                   ],
-                  Row(
-                    children: [
-                      Expanded(
-                        child: MetricTile(
-                          icon: Icons.call_received,
-                          label: 'Receivable',
-                          value: formatCurrencyCompact(receivable),
-                          tint: receivable > 0
-                              ? const Color(0xFFDC2626)
-                              : const Color(0xFF059669),
-                        ),
+                  MetricStrip(
+                    items: [
+                      MetricItem(
+                        'Receivable',
+                        formatCurrencyCompact(receivable),
+                        color: receivable > 0
+                            ? const Color(0xFFDC2626)
+                            : const Color(0xFF059669),
                       ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: MetricTile(
-                          icon: Icons.call_made,
-                          label: 'Payable',
-                          value: formatCurrencyCompact(payable),
-                          tint: const Color(0xFFF59E0B),
-                        ),
+                      MetricItem(
+                        'Payable',
+                        formatCurrencyCompact(payable),
+                        color: const Color(0xFFF59E0B),
                       ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: MetricTile(
-                          icon: Icons.credit_score,
-                          label: 'Credit limit',
-                          value: creditLimit > 0
-                              ? formatCurrencyCompact(creditLimit)
-                              : '--',
-                          tint: const Color(0xFF2563EB),
-                        ),
+                      MetricItem(
+                        'Credit limit',
+                        creditLimit > 0
+                            ? formatCurrencyCompact(creditLimit)
+                            : '--',
                       ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: MetricTile(
-                          icon: Icons.schedule,
-                          label: 'Payment terms',
-                          value: termsDays > 0 ? '$termsDays days' : '--',
-                          tint: const Color(0xFF7C3AED),
-                        ),
+                      MetricItem(
+                        'Terms',
+                        termsDays > 0 ? '$termsDays d' : '--',
                       ),
                     ],
                   ),
-                  const SizedBox(height: 16),
-                  Text(
-                    'Details',
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(14),
-                      child: Column(
-                        children: [
-                          _detailRow(
-                            Icons.phone,
-                            'Phone',
-                            _contact['phone']?.toString(),
-                          ),
-                          _detailRow(
-                            Icons.smartphone,
-                            'Mobile',
-                            _contact['mobile']?.toString(),
-                          ),
-                          _detailRow(
-                            Icons.email,
-                            'Email',
-                            _contact['email']?.toString(),
-                          ),
-                          _detailRow(
-                            Icons.receipt_long,
-                            'GSTIN',
-                            _contact['gstin']?.toString(),
-                          ),
-                          _detailRow(
-                            Icons.location_on,
-                            'Billing address',
-                            _billingAddress(),
-                          ),
-                        ],
+                  const SectionLabel('Details'),
+                  FlatList(
+                    children: [
+                      _detailRow(
+                        Icons.phone,
+                        'Phone',
+                        _contact['phone']?.toString(),
                       ),
-                    ),
+                      _detailRow(
+                        Icons.smartphone,
+                        'Mobile',
+                        _contact['mobile']?.toString(),
+                      ),
+                      _detailRow(
+                        Icons.email,
+                        'Email',
+                        _contact['email']?.toString(),
+                      ),
+                      _detailRow(
+                        Icons.receipt_long,
+                        'GSTIN',
+                        _contact['gstin']?.toString(),
+                      ),
+                      _detailRow(
+                        Icons.location_on,
+                        'Billing address',
+                        _billingAddress(),
+                        last: true,
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -445,20 +392,26 @@ class _ContactDetailScreenState extends ConsumerState<_ContactDetailScreen> {
     return parts.isEmpty ? null : parts.join(', ');
   }
 
-  Widget _detailRow(IconData icon, String label, String? value) {
+  Widget _detailRow(
+    IconData icon,
+    String label,
+    String? value, {
+    bool last = false,
+  }) {
     final display = (value == null || value.isEmpty) ? '--' : value;
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
+    final row = Padding(
+      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, size: 18, color: Colors.grey.shade600),
+          Icon(icon, size: 18, color: FieldUi.muted),
           const SizedBox(width: 10),
           SizedBox(
             width: 110,
             child: Text(
               label,
-              style: Theme.of(context).textTheme.bodySmall,
+              style: Theme.of(context).textTheme.bodySmall
+                  ?.copyWith(color: FieldUi.muted),
             ),
           ),
           Expanded(
@@ -469,6 +422,11 @@ class _ContactDetailScreenState extends ConsumerState<_ContactDetailScreen> {
           ),
         ],
       ),
+    );
+    if (last) return row;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [row, const Divider(height: 1)],
     );
   }
 }
