@@ -45,5 +45,20 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<!-- Background location pings while a route execution is in progress.
+	     iOS is best-effort: location updates allowed in background; fetch
+	     gives the background isolate a chance to run periodically. -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+		<string>fetch</string>
+		<string>processing</string>
+	</array>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Katasticho Field tracks your route GPS during scheduled visits so your manager can see live coverage.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Katasticho Field uses your GPS to check you in at customer locations and update the live trail.</string>
+	<key>NSLocationAlwaysUsageDescription</key>
+	<string>Katasticho Field continues to send route GPS pings when the app is in the background.</string>
 </dict>
 </plist>
