@@ -20,7 +20,8 @@ class OfflineAction {
   /// Unique id (uuid v4).
   final String id;
 
-  /// One of: CHECK_IN, CHECK_OUT, RECORD_ORDER, RECORD_COLLECTION, EXPENSE.
+  /// One of: CHECK_IN, CHECK_OUT, RECORD_ORDER, RECORD_COLLECTION, EXPENSE,
+  /// RECORD_POD.
   final String type;
 
   /// Full API path, e.g. /api/v1/field-sales/visits/{id}/check-in

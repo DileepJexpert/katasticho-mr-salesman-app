@@ -448,6 +448,46 @@ class _VisitsScreenState extends ConsumerState<VisitsScreen> {
     }
   }
 
+  /// Captures Proof of Delivery for a delivered shipment — recipient +
+  /// GPS + deliveredAt, linked to a delivery challan or invoice. Auto-
+  /// stamps the salesperson's current GPS and `deliveredAt = now`.
+  Future<void> _recordPod(Map<String, dynamic> visit) async {
+    final form = await showModalBottomSheet<Map<String, dynamic>>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => _RecordPodSheet(
+        contactName: visit['contactName']?.toString(),
+      ),
+    );
+    if (form == null || !mounted) return;
+
+    FieldLocation? loc;
+    try {
+      loc = await _locationService.currentLocation();
+    } catch (_) {
+      loc = null;
+    }
+    final now = DateTime.now().toUtc().toIso8601String();
+
+    final body = <String, dynamic>{
+      ...form,
+      'deliveredAt': now,
+      if (loc != null) 'geoLatitude': loc.latitude,
+      if (loc != null) 'geoLongitude': loc.longitude,
+    };
+
+    try {
+      await ref.read(apiClientProvider).recordPod(body);
+      _showSuccess('Proof of delivery recorded');
+    } catch (e) {
+      if (_isNetworkError(e)) {
+        await _enqueueAction('RECORD_POD', '/api/v1/proof-of-delivery', body);
+      } else {
+        _showError('Failed to record POD: $e');
+      }
+    }
+  }
+
   // ── Offline support ───────────────────────────────────────────
 
   /// True when the failure is connectivity-related (worth queuing
@@ -813,6 +853,11 @@ class _VisitsScreenState extends ConsumerState<VisitsScreen> {
                     icon: const Icon(Icons.auto_stories, size: 18),
                     label: const Text('Aids'),
                   ),
+                  OutlinedButton.icon(
+                    onPressed: () => _recordPod(visit),
+                    icon: const Icon(Icons.assignment_turned_in, size: 18),
+                    label: const Text('POD'),
+                  ),
                 ],
                 if (status == 'COMPLETED') ...[
                   OutlinedButton.icon(
@@ -829,6 +874,11 @@ class _VisitsScreenState extends ConsumerState<VisitsScreen> {
                     onPressed: () => _logDetailing(visitId),
                     icon: const Icon(Icons.medication, size: 18),
                     label: const Text('Detail'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: () => _recordPod(visit),
+                    icon: const Icon(Icons.assignment_turned_in, size: 18),
+                    label: const Text('POD'),
                   ),
                 ],
               ],
@@ -1117,6 +1167,152 @@ class _AidsSheetState extends ConsumerState<_AidsSheet> {
                   ),
                 ],
               ),
+      ),
+    );
+  }
+}
+
+
+/// Bottom-sheet form for capturing Proof of Delivery from a visit.
+///
+/// Caller composes the body — recipient + DC/invoice link — and the
+/// parent screen stamps deliveredAt + GPS before posting. Kept JSON-only
+/// for now; photo / signature attachments can be wired up once
+/// image_picker is added to the field-app pubspec.
+class _RecordPodSheet extends StatefulWidget {
+  const _RecordPodSheet({this.contactName});
+
+  /// Pre-filled hint shown above the form so the salesperson knows which
+  /// customer they're capturing for.
+  final String? contactName;
+
+  @override
+  State<_RecordPodSheet> createState() => _RecordPodSheetState();
+}
+
+class _RecordPodSheetState extends State<_RecordPodSheet> {
+  final _challanId = TextEditingController();
+  final _invoiceId = TextEditingController();
+  final _recipient = TextEditingController();
+  final _phone = TextEditingController();
+  final _relation = TextEditingController();
+  final _notes = TextEditingController();
+
+  @override
+  void dispose() {
+    _challanId.dispose();
+    _invoiceId.dispose();
+    _recipient.dispose();
+    _phone.dispose();
+    _relation.dispose();
+    _notes.dispose();
+    super.dispose();
+  }
+
+  bool get _ready =>
+      _recipient.text.trim().isNotEmpty &&
+      (_challanId.text.trim().isNotEmpty ||
+          _invoiceId.text.trim().isNotEmpty);
+
+  @override
+  Widget build(BuildContext context) {
+    final inset = MediaQuery.of(context).viewInsets.bottom;
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + inset),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                "Record Proof of Delivery",
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              if (widget.contactName != null) ...[
+                const SizedBox(height: 4),
+                Text(
+                  "For ${widget.contactName}",
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
+              const SizedBox(height: 12),
+              const Text(
+                "Link to either a delivery challan or an invoice.",
+                style: TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+              TextField(
+                controller: _challanId,
+                decoration: const InputDecoration(
+                  labelText: "Delivery challan id",
+                ),
+                onChanged: (_) => setState(() {}),
+              ),
+              TextField(
+                controller: _invoiceId,
+                decoration: const InputDecoration(labelText: "Invoice id"),
+                onChanged: (_) => setState(() {}),
+              ),
+              const Divider(height: 24),
+              TextField(
+                controller: _recipient,
+                decoration: const InputDecoration(
+                  labelText: "Recipient name *",
+                ),
+                onChanged: (_) => setState(() {}),
+              ),
+              TextField(
+                controller: _phone,
+                decoration: const InputDecoration(labelText: "Phone"),
+                keyboardType: TextInputType.phone,
+              ),
+              TextField(
+                controller: _relation,
+                decoration: const InputDecoration(
+                  labelText: "Relationship (Self / Watchman / …)",
+                ),
+              ),
+              TextField(
+                controller: _notes,
+                decoration: const InputDecoration(labelText: "Notes"),
+                maxLines: 2,
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                "GPS and timestamp will be stamped automatically.",
+                style: TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text("Cancel"),
+                  ),
+                  const Spacer(),
+                  FilledButton(
+                    onPressed: !_ready
+                        ? null
+                        : () => Navigator.pop(context, {
+                            if (_challanId.text.trim().isNotEmpty)
+                              "deliveryChallanId": _challanId.text.trim(),
+                            if (_invoiceId.text.trim().isNotEmpty)
+                              "invoiceId": _invoiceId.text.trim(),
+                            "recipientName": _recipient.text.trim(),
+                            if (_phone.text.trim().isNotEmpty)
+                              "recipientPhone": _phone.text.trim(),
+                            if (_relation.text.trim().isNotEmpty)
+                              "recipientRelation": _relation.text.trim(),
+                            if (_notes.text.trim().isNotEmpty)
+                              "notes": _notes.text.trim(),
+                          }),
+                    child: const Text("Save"),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

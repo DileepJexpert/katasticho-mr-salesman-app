@@ -205,6 +205,19 @@ class FieldApiClient {
     return _unwrap(response.data);
   }
 
+  /// Records a Proof of Delivery against a delivery challan and/or invoice.
+  /// Mirrors the ERP `ProofOfDeliveryController.record` endpoint. The body
+  /// is whatever the caller composed (POD_LINK_REQUIRED is enforced on the
+  /// server). Used by the visit-action "POD" button.
+  Future<Map<String, dynamic>> recordPod(Map<String, dynamic> body) async {
+    final response = await _dio.post<Map<String, dynamic>>(
+      '/api/v1/proof-of-delivery',
+      data: body,
+      options: _authOptions(),
+    );
+    return _unwrap(response.data);
+  }
+
   // ── Day Close ─────────────────────────────────────────────────
 
   Future<Map<String, dynamic>> initiateDayClose(String executionId) async {
