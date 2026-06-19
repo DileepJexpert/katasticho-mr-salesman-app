@@ -218,12 +218,12 @@ class FieldApiClient {
     return _unwrap(response.data);
   }
 
-  /// Uploads a photo (signed slip or delivery snapshot) against an
-  /// already-recorded POD. Files are stored via the server's shared
-  /// AttachmentService with entityType=POD. Offline capture is intentionally
-  /// not supported here — POD must exist on the server first so we have an
-  /// id to attach against.
-  Future<Map<String, dynamic>> attachPodPhoto(
+  /// Uploads a file (photo of signed slip / delivery snapshot / on-screen
+  /// signature PNG) against an already-recorded POD. Files are stored via
+  /// the server's shared AttachmentService with entityType=POD. Offline
+  /// capture is intentionally not supported here — POD must exist on the
+  /// server first so we have an id to attach against.
+  Future<Map<String, dynamic>> attachPodFile(
     String podId, {
     required List<int> bytes,
     required String filename,

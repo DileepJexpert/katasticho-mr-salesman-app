@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:signature/signature.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/location/location_ping_tracker.dart';
@@ -497,11 +498,13 @@ class _VisitsScreenState extends ConsumerState<VisitsScreen> {
   }
 
   /// After a POD posts successfully, offers the salesperson a chance to
-  /// snap a photo of the signed paper slip (or the goods at the door)
-  /// and uploads it through the shared AttachmentService.
+  /// capture proof — either a photo (signed paper slip or goods at the
+  /// door) or an on-screen finger signature. Uploaded through the shared
+  /// AttachmentService. The salesperson can attach more later from the
+  /// ERP screen — this is the at-the-door fast path.
   Future<void> _maybeAttachPodPhoto(String podId) async {
     if (!mounted) return;
-    final source = await showModalBottomSheet<ImageSource>(
+    final choice = await showModalBottomSheet<_PodAttachChoice>(
       context: context,
       builder: (ctx) => SafeArea(
         child: Wrap(
@@ -510,12 +513,18 @@ class _VisitsScreenState extends ConsumerState<VisitsScreen> {
               leading: const Icon(Icons.camera_alt_outlined),
               title: const Text('Take a photo'),
               subtitle: const Text('Signed slip or goods at the door'),
-              onTap: () => Navigator.pop(ctx, ImageSource.camera),
+              onTap: () => Navigator.pop(ctx, _PodAttachChoice.camera),
             ),
             ListTile(
               leading: const Icon(Icons.photo_library_outlined),
               title: const Text('Pick from gallery'),
-              onTap: () => Navigator.pop(ctx, ImageSource.gallery),
+              onTap: () => Navigator.pop(ctx, _PodAttachChoice.gallery),
+            ),
+            ListTile(
+              leading: const Icon(Icons.draw_outlined),
+              title: const Text('Sign on screen'),
+              subtitle: const Text('Recipient signs with their finger'),
+              onTap: () => Navigator.pop(ctx, _PodAttachChoice.signature),
             ),
             ListTile(
               leading: const Icon(Icons.skip_next_outlined),
@@ -526,8 +535,19 @@ class _VisitsScreenState extends ConsumerState<VisitsScreen> {
         ),
       ),
     );
-    if (source == null || !mounted) return;
+    if (choice == null || !mounted) return;
 
+    switch (choice) {
+      case _PodAttachChoice.camera:
+        await _pickAndUploadImage(podId, ImageSource.camera);
+      case _PodAttachChoice.gallery:
+        await _pickAndUploadImage(podId, ImageSource.gallery);
+      case _PodAttachChoice.signature:
+        await _captureSignatureForPod(podId);
+    }
+  }
+
+  Future<void> _pickAndUploadImage(String podId, ImageSource source) async {
     try {
       // Cap dimensions so a 12 MP phone shot doesn't blow up the upload —
       // signed-slip / door photos are still readable at 1600px wide and
@@ -539,7 +559,7 @@ class _VisitsScreenState extends ConsumerState<VisitsScreen> {
       );
       if (picked == null || !mounted) return;
       final bytes = await picked.readAsBytes();
-      await ref.read(apiClientProvider).attachPodPhoto(
+      await ref.read(apiClientProvider).attachPodFile(
             podId,
             bytes: bytes,
             filename: picked.name,
@@ -547,6 +567,29 @@ class _VisitsScreenState extends ConsumerState<VisitsScreen> {
       _showSuccess('Photo attached');
     } catch (e) {
       _showError('Photo upload failed: $e');
+    }
+  }
+
+  /// Opens a fullscreen signature pad. On save, the drawn signature is
+  /// exported to PNG bytes and uploaded against the POD via the same
+  /// attachment endpoint as photos.
+  Future<void> _captureSignatureForPod(String podId) async {
+    final bytes = await Navigator.of(context).push<List<int>>(
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => const _SignaturePadScreen(),
+      ),
+    );
+    if (bytes == null || bytes.isEmpty || !mounted) return;
+    try {
+      await ref.read(apiClientProvider).attachPodFile(
+            podId,
+            bytes: bytes,
+            filename: 'signature.png',
+          );
+      _showSuccess('Signature attached');
+    } catch (e) {
+      _showError('Signature upload failed: $e');
     }
   }
 
@@ -1377,6 +1420,118 @@ class _RecordPodSheetState extends State<_RecordPodSheet> {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// What the salesperson picked in the post-record attach sheet.
+enum _PodAttachChoice { camera, gallery, signature }
+
+/// Fullscreen on-screen signature pad. The recipient signs with a finger,
+/// the salesperson taps Save, and the drawn strokes are exported to PNG
+/// bytes returned via Navigator.pop. Cancel returns null.
+class _SignaturePadScreen extends StatefulWidget {
+  const _SignaturePadScreen();
+
+  @override
+  State<_SignaturePadScreen> createState() => _SignaturePadScreenState();
+}
+
+class _SignaturePadScreenState extends State<_SignaturePadScreen> {
+  late final SignatureController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = SignatureController(
+      penStrokeWidth: 3,
+      penColor: Colors.black,
+      exportBackgroundColor: Colors.white,
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    if (_controller.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Sign before saving')),
+      );
+      return;
+    }
+    final bytes = await _controller.toPngBytes();
+    if (!mounted) return;
+    Navigator.of(context).pop(bytes?.toList());
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Recipient signature'),
+        actions: [
+          IconButton(
+            tooltip: 'Clear',
+            icon: const Icon(Icons.refresh),
+            onPressed: () => _controller.clear(),
+          ),
+        ],
+      ),
+      body: Column(
+        children: [
+          const Padding(
+            padding: EdgeInsets.all(12),
+            child: Text(
+              'Hand the phone to the recipient. Sign inside the box.',
+              textAlign: TextAlign.center,
+            ),
+          ),
+          Expanded(
+            child: Container(
+              margin: const EdgeInsets.symmetric(horizontal: 12),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                border: Border.all(color: Colors.grey),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: Signature(
+                  controller: _controller,
+                  backgroundColor: Colors.white,
+                ),
+              ),
+            ),
+          ),
+          SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      child: const Text('Cancel'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: _save,
+                      icon: const Icon(Icons.save),
+                      label: const Text('Save'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
