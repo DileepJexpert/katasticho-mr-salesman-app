@@ -60,5 +60,9 @@
 	<string>Katasticho Field uses your GPS to check you in at customer locations and update the live trail.</string>
 	<key>NSLocationAlwaysUsageDescription</key>
 	<string>Katasticho Field continues to send route GPS pings when the app is in the background.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Katasticho Field uses the camera to capture proof-of-delivery photos and signed delivery slips at the customer's door.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Katasticho Field reads photos when you attach a previously taken proof-of-delivery image to a delivery.</string>
 </dict>
 </plist>

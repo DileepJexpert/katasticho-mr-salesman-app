@@ -218,6 +218,27 @@ class FieldApiClient {
     return _unwrap(response.data);
   }
 
+  /// Uploads a photo (signed slip or delivery snapshot) against an
+  /// already-recorded POD. Files are stored via the server's shared
+  /// AttachmentService with entityType=POD. Offline capture is intentionally
+  /// not supported here — POD must exist on the server first so we have an
+  /// id to attach against.
+  Future<Map<String, dynamic>> attachPodPhoto(
+    String podId, {
+    required List<int> bytes,
+    required String filename,
+  }) async {
+    final form = FormData.fromMap({
+      'file': MultipartFile.fromBytes(bytes, filename: filename),
+    });
+    final response = await _dio.post<Map<String, dynamic>>(
+      '/api/v1/proof-of-delivery/$podId/attachments',
+      data: form,
+      options: _authOptions(),
+    );
+    return _unwrap(response.data);
+  }
+
   // ── Day Close ─────────────────────────────────────────────────
 
   Future<Map<String, dynamic>> initiateDayClose(String executionId) async {

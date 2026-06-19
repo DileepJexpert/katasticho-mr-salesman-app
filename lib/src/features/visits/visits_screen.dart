@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/location/location_ping_tracker.dart';
@@ -477,14 +478,75 @@ class _VisitsScreenState extends ConsumerState<VisitsScreen> {
     };
 
     try {
-      await ref.read(apiClientProvider).recordPod(body);
+      final pod = await ref.read(apiClientProvider).recordPod(body);
       _showSuccess('Proof of delivery recorded');
+      final podId = pod['id']?.toString();
+      if (podId != null && podId.isNotEmpty) {
+        await _maybeAttachPodPhoto(podId);
+      }
     } catch (e) {
       if (_isNetworkError(e)) {
+        // Offline: queue the JSON record. Photo attach is skipped — we
+        // don't have a POD id yet, so the salesperson can attach via the
+        // ERP screen once the queued record syncs through.
         await _enqueueAction('RECORD_POD', '/api/v1/proof-of-delivery', body);
       } else {
         _showError('Failed to record POD: $e');
       }
+    }
+  }
+
+  /// After a POD posts successfully, offers the salesperson a chance to
+  /// snap a photo of the signed paper slip (or the goods at the door)
+  /// and uploads it through the shared AttachmentService.
+  Future<void> _maybeAttachPodPhoto(String podId) async {
+    if (!mounted) return;
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Wrap(
+          children: [
+            ListTile(
+              leading: const Icon(Icons.camera_alt_outlined),
+              title: const Text('Take a photo'),
+              subtitle: const Text('Signed slip or goods at the door'),
+              onTap: () => Navigator.pop(ctx, ImageSource.camera),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library_outlined),
+              title: const Text('Pick from gallery'),
+              onTap: () => Navigator.pop(ctx, ImageSource.gallery),
+            ),
+            ListTile(
+              leading: const Icon(Icons.skip_next_outlined),
+              title: const Text('Skip'),
+              onTap: () => Navigator.pop(ctx, null),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (source == null || !mounted) return;
+
+    try {
+      // Cap dimensions so a 12 MP phone shot doesn't blow up the upload —
+      // signed-slip / door photos are still readable at 1600px wide and
+      // ~70% JPEG quality.
+      final picked = await ImagePicker().pickImage(
+        source: source,
+        maxWidth: 1600,
+        imageQuality: 70,
+      );
+      if (picked == null || !mounted) return;
+      final bytes = await picked.readAsBytes();
+      await ref.read(apiClientProvider).attachPodPhoto(
+            podId,
+            bytes: bytes,
+            filename: picked.name,
+          );
+      _showSuccess('Photo attached');
+    } catch (e) {
+      _showError('Photo upload failed: $e');
     }
   }
 
@@ -1279,7 +1341,9 @@ class _RecordPodSheetState extends State<_RecordPodSheet> {
               ),
               const SizedBox(height: 12),
               const Text(
-                "GPS and timestamp will be stamped automatically.",
+                "GPS and timestamp will be stamped automatically. After "
+                "saving, you can snap a photo of the signed slip or "
+                "delivery snapshot to attach.",
                 style: TextStyle(fontSize: 12, color: Colors.grey),
               ),
               const SizedBox(height: 12),
