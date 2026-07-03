@@ -5,7 +5,6 @@ import 'dart:ui';
 
 import 'package:dio/dio.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
-import 'package:flutter_background_service_android/flutter_background_service_android.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
@@ -16,7 +15,8 @@ import '../config/app_config.dart';
 /// background service so the background isolate can read them.
 class _Keys {
   static const executionId = 'field.bg.executionId';
-  static const sessionToken = 'field.session..accessToken'; // matches SessionStore
+  static const sessionToken =
+      'field.session..accessToken'; // matches SessionStore
   static const baseUrl = 'field.bg.baseUrl';
 }
 
@@ -36,7 +36,6 @@ class BackgroundLocationService {
   BackgroundLocationService._();
 
   /// Identifier passed to the FlutterBackgroundService channel.
-  static const _channelName = 'katasticho_field_location';
   static const _channelId = 'katasticho_field_location_channel';
 
   /// Min interval between pings, mirrors the in-app tracker.
@@ -60,9 +59,7 @@ class BackgroundLocationService {
         initialNotificationTitle: 'Field tracking',
         initialNotificationContent: 'Sending location pings for your route',
         foregroundServiceNotificationId: 8612,
-        foregroundServiceTypes: const [
-          AndroidForegroundType.location,
-        ],
+        foregroundServiceTypes: const [AndroidForegroundType.location],
       ),
       iosConfiguration: IosConfiguration(
         autoStart: false,
@@ -87,8 +84,7 @@ class BackgroundLocationService {
       // is automatically visible to the background isolate.
       await prefs.setString(_Keys.sessionToken, authToken);
     }
-    await prefs.setString(
-        _Keys.baseUrl, baseUrl ?? AppConfig.defaultBaseUrl);
+    await prefs.setString(_Keys.baseUrl, baseUrl ?? AppConfig.defaultBaseUrl);
 
     final service = FlutterBackgroundService();
     final running = await service.isRunning();
@@ -167,8 +163,7 @@ class BackgroundLocationService {
     }
 
     final token = prefs.getString(_Keys.sessionToken) ?? '';
-    final baseUrl =
-        prefs.getString(_Keys.baseUrl) ?? AppConfig.defaultBaseUrl;
+    final baseUrl = prefs.getString(_Keys.baseUrl) ?? AppConfig.defaultBaseUrl;
 
     Position? loc;
     try {
@@ -191,21 +186,25 @@ class BackgroundLocationService {
       'routeExecutionId': executionId,
     };
 
-    final dio = Dio(BaseOptions(
-      baseUrl: baseUrl,
-      connectTimeout: const Duration(seconds: 15),
-      receiveTimeout: const Duration(seconds: 20),
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        if (token.isNotEmpty) 'Authorization': 'Bearer $token',
-      },
-    ));
+    final dio = Dio(
+      BaseOptions(
+        baseUrl: baseUrl,
+        connectTimeout: const Duration(seconds: 15),
+        receiveTimeout: const Duration(seconds: 20),
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          if (token.isNotEmpty) 'Authorization': 'Bearer $token',
+        },
+      ),
+    );
 
     try {
       await dio.post(
         '/api/v1/field-sales/locations/ping',
-        data: {'pings': [ping]},
+        data: {
+          'pings': [ping],
+        },
       );
     } catch (_) {
       // Enqueue offline (same shape OfflineQueue uses in the main isolate
@@ -217,18 +216,21 @@ class BackgroundLocationService {
   /// Mirror of OfflineQueue.enqueue using the same SharedPreferences key.
   /// Kept private + minimal so we don't reach into the main-isolate code.
   static Future<void> _enqueueOffline(
-      SharedPreferences prefs, Map<String, dynamic> ping) async {
+    SharedPreferences prefs,
+    Map<String, dynamic> ping,
+  ) async {
     const queueKey = 'field.offline.queue';
     final raw = prefs.getString(queueKey);
-    final List<dynamic> existing =
-        raw == null || raw.isEmpty ? <dynamic>[] : (jsonDecode(raw) as List);
+    final List<dynamic> existing = raw == null || raw.isEmpty
+        ? <dynamic>[]
+        : (jsonDecode(raw) as List);
     existing.add(<String, dynamic>{
       'id': const Uuid().v4(),
       'type': 'LOCATION_PING',
       'endpoint': '/api/v1/field-sales/locations/ping',
       'method': 'POST',
       'body': {
-        'pings': [ping]
+        'pings': [ping],
       },
       'createdAt': DateTime.now().toUtc().toIso8601String(),
       'retryCount': 0,
