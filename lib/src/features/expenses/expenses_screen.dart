@@ -24,7 +24,6 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen> {
   bool _submitting = false;
   String? _error;
   List<dynamic> _expenses = [];
-  List<dynamic> _accounts = [];
 
   @override
   void initState() {
@@ -55,14 +54,10 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen> {
 
     try {
       final api = ref.read(apiClientProvider);
-      final results = await Future.wait([
-        api.getReimbursements(),
-        api.getAccounts(),
-      ]);
+      final expenses = await api.getReimbursements();
       if (mounted) {
         setState(() {
-          _expenses = results[0];
-          _accounts = results[1];
+          _expenses = expenses;
         });
       }
     } catch (e) {
@@ -72,38 +67,6 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen> {
     }
   }
 
-  /// Picks the expense (debit) account for the selected category by name
-  /// keywords, falling back to a Miscellaneous / first EXPENSE account.
-  Map<String, dynamic>? _resolveExpenseAccount(String category) {
-    final keywords = switch (category) {
-      'TRAVEL' => ['travel', 'conveyance', 'transport'],
-      'FOOD' => ['food', 'meal', 'staff welfare', 'refreshment'],
-      'LODGING' => ['lodging', 'hotel', 'accommodation', 'boarding'],
-      _ => ['miscellaneous', 'misc', 'general', 'other'],
-    };
-
-    final expenseAccounts = _accounts
-        .whereType<Map<String, dynamic>>()
-        .where((a) => a['type']?.toString() == 'EXPENSE')
-        .toList();
-
-    for (final keyword in keywords) {
-      for (final account in expenseAccounts) {
-        final name = account['name']?.toString().toLowerCase() ?? '';
-        if (name.contains(keyword)) return account;
-      }
-    }
-    // Fallback: a Miscellaneous expense account, then any expense account.
-    for (final account in expenseAccounts) {
-      final name = account['name']?.toString().toLowerCase() ?? '';
-      if (name.contains('miscellaneous') || name.contains('misc')) {
-        return account;
-      }
-    }
-    return expenseAccounts.isNotEmpty ? expenseAccounts.first : null;
-  }
-
-
   Future<void> _submit() async {
     final amount = double.tryParse(_amountController.text.trim());
     if (amount == null || amount <= 0) {
@@ -111,8 +74,6 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen> {
       return;
     }
 
-    final expenseAccount = _resolveExpenseAccount(_category);
-    final accountId = expenseAccount?['id']?.toString();
     final noteText = _notesController.text.trim();
     final description =
         noteText.isNotEmpty ? noteText : '${_categoryLabel(_category)} expense';
@@ -122,7 +83,6 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen> {
       final api = ref.read(apiClientProvider);
       final reimbursement = await api.submitReimbursement(
         expenseDate: _today,
-        accountId: accountId,
         amount: amount,
         category: _category,
         description: description,
