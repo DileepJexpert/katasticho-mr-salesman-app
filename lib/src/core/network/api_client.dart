@@ -382,9 +382,11 @@ class FieldApiClient {
 
   /// POST /api/v1/employee-reimbursements. The logged-in field employee is
   /// resolved by the backend when employeeId is omitted.
+  /// accountId is optional: if omitted, the backend auto-resolves the default
+  /// CoA expense account for the category (e.g. Travel & Conveyance for TRAVEL).
   Future<Map<String, dynamic>> submitReimbursement({
     required String expenseDate,
-    required String accountId,
+    String? accountId,
     required double amount,
     required String category,
     required String description,
@@ -394,7 +396,7 @@ class FieldApiClient {
       '/api/v1/employee-reimbursements',
       data: {
         'expenseDate': expenseDate,
-        'accountId': accountId,
+        if (accountId != null && accountId.isNotEmpty) 'accountId': accountId,
         'amount': amount,
         'category': category,
         'description': description,
@@ -432,16 +434,22 @@ class FieldApiClient {
     );
   }
 
-  // â”€â”€ Chart of Accounts â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Chart of Accounts ──────────────────────────────────────────────────────
 
-  /// GET /api/v1/accounts â€” flat list used to resolve the expense
+  /// GET /api/v1/accounts — flat list used to resolve the expense
   /// account and the cash (paid-through) account for expense entry.
+  /// Gracefully returns empty list if user's role (e.g. OPERATOR)
+  /// is not entitled to ModuleCode.ACCOUNTING.
   Future<List<dynamic>> getAccounts() async {
-    final response = await _dio.get<Map<String, dynamic>>(
-      '/api/v1/accounts',
-      options: _authOptions(),
-    );
-    return _unwrapList(response.data);
+    try {
+      final response = await _dio.get<Map<String, dynamic>>(
+        '/api/v1/accounts',
+        options: _authOptions(),
+      );
+      return _unwrapList(response.data);
+    } catch (_) {
+      return <dynamic>[];
+    }
   }
 
   // â”€â”€ Catalog & Sales Orders â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€

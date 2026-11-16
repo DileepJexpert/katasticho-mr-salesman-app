@@ -112,23 +112,20 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen> {
     }
 
     final expenseAccount = _resolveExpenseAccount(_category);
-    if (expenseAccount == null) {
-      _showSnack(
-        'Could not resolve an expense account. '
-        'Ask your admin to set up the chart of accounts.',
-      );
-      return;
-    }
+    final accountId = expenseAccount?['id']?.toString();
+    final noteText = _notesController.text.trim();
+    final description =
+        noteText.isNotEmpty ? noteText : '${_categoryLabel(_category)} expense';
 
     setState(() => _submitting = true);
     try {
       final api = ref.read(apiClientProvider);
       final reimbursement = await api.submitReimbursement(
         expenseDate: _today,
-        accountId: expenseAccount['id'].toString(),
+        accountId: accountId,
         amount: amount,
         category: _category,
-        description: _notesController.text.trim(),
+        description: description,
         receiptUrl: _receipt?.name,
       );
       final reimbursementId = reimbursement['id']?.toString();
@@ -318,13 +315,19 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen> {
     final theme = Theme.of(context);
     final category = expense['category']?.toString() ?? 'MISC';
     final description = expense['description']?.toString() ?? '';
-    final number = expense['expenseNumber']?.toString() ?? '';
-    final status = expense['status']?.toString() ?? '';
+    final expenseDate = expense['expenseDate']?.toString() ?? '';
+    final status = expense['status']?.toString() ?? 'SUBMITTED';
+    final accountName = expense['accountName']?.toString() ?? '';
     final amount =
         (expense['total'] as num?)?.toDouble() ??
         (expense['amount'] as num?)?.toDouble() ??
         0;
     final color = _categoryColor(category);
+
+    Color statusColor = Colors.orange;
+    if (status == 'APPROVED') statusColor = const Color(0xFF2563EB);
+    if (status == 'PAID') statusColor = const Color(0xFF059669);
+    if (status == 'REJECTED') statusColor = Colors.red;
 
     return Card(
       child: Padding(
@@ -349,19 +352,54 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen> {
                       fontWeight: FontWeight.w700,
                     ),
                   ),
-                  Text(
-                    [
-                      if (number.isNotEmpty) number,
-                      if (status.isNotEmpty) status,
-                    ].join(' · '),
-                    style: theme.textTheme.bodySmall,
+                  const SizedBox(height: 2),
+                  Row(
+                    children: [
+                      if (expenseDate.isNotEmpty)
+                        Text(
+                          expenseDate,
+                          style: theme.textTheme.bodySmall,
+                        ),
+                      if (accountName.isNotEmpty) ...[
+                        const Text(' · ', style: TextStyle(color: Colors.grey)),
+                        Expanded(
+                          child: Text(
+                            accountName,
+                            style: theme.textTheme.bodySmall,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
                 ],
               ),
             ),
-            Text(
-              _formatCurrency(amount),
-              style: const TextStyle(fontWeight: FontWeight.w800),
+            const SizedBox(width: 8),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  _formatCurrency(amount),
+                  style: const TextStyle(fontWeight: FontWeight.w800),
+                ),
+                const SizedBox(height: 4),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: statusColor.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    status,
+                    style: TextStyle(
+                      color: statusColor,
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ],
         ),
