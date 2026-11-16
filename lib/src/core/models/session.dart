@@ -1,3 +1,5 @@
+import '../../features/field/field_models.dart';
+
 class FieldSession {
   const FieldSession({
     required this.accessToken,
@@ -22,6 +24,13 @@ class FieldSession {
   final String businessType;
 
   bool get isDemo => accessToken == 'demo-token';
+
+  FieldProfile get fieldProfile => resolveFieldProfile(
+        industry: industry,
+        businessType: businessType,
+      );
+
+  bool get isPharma => fieldProfile.isPharma;
 
   factory FieldSession.fromAuthPayload(Map<String, dynamic> payload) {
     final user = payload['user'] as Map<String, dynamic>? ?? {};
@@ -67,10 +76,10 @@ class FieldSession {
     refreshToken: 'demo-refresh-token',
     userId: 'demo-user',
     orgId: 'demo-org',
-    fullName: 'Demo MR',
+    fullName: 'Demo Salesman',
     role: 'FIELD_SALES',
-    orgName: 'Katasticho Pharma',
-    industry: 'PHARMA',
-    businessType: 'MANUFACTURER',
+    orgName: 'Katasticho Distribution',
+    industry: 'FMCG_DISTRIBUTOR',
+    businessType: 'DISTRIBUTOR',
   );
 }

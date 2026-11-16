@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -11,6 +12,9 @@ class LoginScreen extends ConsumerStatefulWidget {
 }
 
 class _LoginScreenState extends ConsumerState<LoginScreen> {
+  static const _demoSalesmanPhone = '9000000005';
+  static const _demoSalesmanPassword = 'Demo@1234';
+
   final _identifier = TextEditingController();
   final _password = TextEditingController();
 
@@ -84,7 +88,20 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       ),
                     ),
                   ],
-                  const SizedBox(height: 22),
+                  if (kDebugMode) ...[
+                    OutlinedButton.icon(
+                      onPressed: state.isLoading
+                          ? null
+                          : () {
+                              _identifier.text = _demoSalesmanPhone;
+                              _password.text = _demoSalesmanPassword;
+                            },
+                      icon: const Icon(Icons.content_paste_go_outlined),
+                      label: const Text('Fill Demo Field Sales credentials'),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                  const SizedBox(height: 10),
                   FilledButton.icon(
                     onPressed: state.isLoading
                         ? null

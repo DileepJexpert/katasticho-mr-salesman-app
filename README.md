@@ -1,15 +1,15 @@
 # Katasticho Field
 
-Mobile field-force app for pharma MR teams, distributor salesmen, FMCG salesmen, collection agents, and delivery agents.
+Mobile field-force app for distributor sales reps, FMCG salesmen, pharma MR teams, collection agents, and delivery agents.
 
 ## Product Direction
 
 This app is intentionally generic field-force software, not only a GPS tracker.
 
-It supports two first-class business modes:
+It adapts automatically to the signed-in organisation's industry:
 
-- **Manufacturer MR mode**: doctor, hospital, clinic, chemist, stockist, and distributor visits; DCR, product discussion, samples, gifts, competitor notes, and POB.
-- **Distributor salesman mode**: retailer/chemist visits, order booking, stock/scheme visibility, dealer collections, promises, and follow-ups.
+- **Distributor & FMCG field mode**: retailer/customer visits, beat & route plans, order booking, stock/scheme visibility, dealer collections, promises, and follow-ups.
+- **Pharma & Healthcare MR mode**: doctor, hospital, clinic, chemist, stockist, and distributor visits; DCR, product detailing, samples, gifts, competitor notes, and POB.
 
 ## Backend Connection
 

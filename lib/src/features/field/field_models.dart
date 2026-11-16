@@ -6,6 +6,37 @@ enum FieldProfile {
   deliveryAgent,
 }
 
+extension FieldProfileX on FieldProfile {
+  bool get isPharma => this == FieldProfile.pharmaMr;
+
+  String get label => switch (this) {
+        FieldProfile.pharmaMr => 'Pharma field team',
+        FieldProfile.distributorSalesman => 'Distributor sales team',
+        FieldProfile.fmcgSalesman => 'FMCG sales team',
+        FieldProfile.collectionAgent => 'Collection team',
+        FieldProfile.deliveryAgent => 'Delivery team',
+      };
+}
+
+FieldProfile resolveFieldProfile({
+  required String industry,
+  required String businessType,
+}) {
+  final value = '$industry $businessType'.toUpperCase();
+  if (value.contains('PHARMA') ||
+      value.contains('MEDICAL') ||
+      value.contains('HEALTH')) {
+    return FieldProfile.pharmaMr;
+  }
+  if (value.contains('COLLECTION')) return FieldProfile.collectionAgent;
+  if (value.contains('DELIVERY') || value.contains('LOGISTICS')) {
+    return FieldProfile.deliveryAgent;
+  }
+  if (value.contains('DISTRIBUT') || value.contains('WHOLESAL')) {
+    return FieldProfile.distributorSalesman;
+  }
+  return FieldProfile.fmcgSalesman;
+}
 enum PartyType {
   doctor,
   hospital,

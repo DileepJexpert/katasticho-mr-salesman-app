@@ -1,11 +1,11 @@
 {
-    "name": "katasticho_field",
-    "short_name": "katasticho_field",
+    "name": "Katasticho Field",
+    "short_name": "Katasticho Field",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
     "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "description": "Katasticho Field — mobile field-force execution app for sales reps, distributors, and field teams.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

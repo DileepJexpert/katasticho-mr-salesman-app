@@ -395,16 +395,39 @@ class _VisitsScreenState extends ConsumerState<VisitsScreen> {
 
   Future<void> _recordCollection(String visitId) async {
     final amountCtl = TextEditingController();
+    String paymentMethod = 'CASH';
     final proceed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Record Collection'),
-        content: TextField(
-          controller: amountCtl,
-          keyboardType: TextInputType.number,
-          decoration: const InputDecoration(
-            labelText: 'Amount *',
-            hintText: 'e.g. 2500',
+        content: StatefulBuilder(
+          builder: (ctx, setDialogState) => Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: amountCtl,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'Amount *',
+                  hintText: 'e.g. 2500',
+                ),
+              ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                initialValue: paymentMethod,
+                decoration: const InputDecoration(labelText: 'Payment method'),
+                items: const [
+                  DropdownMenuItem(value: 'CASH', child: Text('Cash')),
+                  DropdownMenuItem(value: 'UPI', child: Text('UPI')),
+                  DropdownMenuItem(value: 'CARD', child: Text('Card')),
+                  DropdownMenuItem(value: 'BANK_TRANSFER', child: Text('Bank transfer')),
+                  DropdownMenuItem(value: 'CHEQUE', child: Text('Cheque')),
+                ],
+                onChanged: (value) {
+                  if (value != null) setDialogState(() => paymentMethod = value);
+                },
+              ),
+            ],
           ),
         ),
         actions: [
@@ -434,7 +457,7 @@ class _VisitsScreenState extends ConsumerState<VisitsScreen> {
     try {
       await ref
           .read(apiClientProvider)
-          .recordCollection(visitId, collectionAmount: collectionAmount);
+          .recordCollection(visitId, collectionAmount: collectionAmount, paymentMethod: paymentMethod);
       _showSuccess('Collection recorded');
       await _loadData();
     } catch (e) {
@@ -442,7 +465,7 @@ class _VisitsScreenState extends ConsumerState<VisitsScreen> {
         await _enqueueAction(
           'RECORD_COLLECTION',
           '/api/v1/field-sales/visits/$visitId/record-collection',
-          {'collectionAmount': collectionAmount},
+          {'collectionAmount': collectionAmount, 'paymentMethod': paymentMethod},
         );
       } else {
         _showError('Failed to record collection: $e');
@@ -951,7 +974,7 @@ class _VisitsScreenState extends ConsumerState<VisitsScreen> {
                   OutlinedButton.icon(
                     onPressed: () => _logDetailing(visitId),
                     icon: const Icon(Icons.medication, size: 18),
-                    label: const Text('Detail'),
+                    label: const Text('Activity'),
                   ),
                   OutlinedButton.icon(
                     onPressed: () => _showAids(visitId),
@@ -978,7 +1001,7 @@ class _VisitsScreenState extends ConsumerState<VisitsScreen> {
                   OutlinedButton.icon(
                     onPressed: () => _logDetailing(visitId),
                     icon: const Icon(Icons.medication, size: 18),
-                    label: const Text('Detail'),
+                    label: const Text('Activity'),
                   ),
                   OutlinedButton.icon(
                     onPressed: () => _recordPod(visit),
@@ -1080,7 +1103,7 @@ class _DetailingSheetState extends ConsumerState<_DetailingSheet> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Detailing & Samples',
+            Text('Products & Promo',
                 style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 8),
             ..._rows.asMap().entries.map((entry) => ListTile(

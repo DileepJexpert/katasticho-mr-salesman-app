@@ -1,5 +1,6 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../auth/auth_controller.dart';
 import '../shared/field_widgets.dart';
@@ -17,6 +18,7 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen> {
   String _category = 'TRAVEL';
   final _amountController = TextEditingController();
   final _notesController = TextEditingController();
+  XFile? _receipt;
 
   bool _loading = true;
   bool _submitting = false;
@@ -54,7 +56,7 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen> {
     try {
       final api = ref.read(apiClientProvider);
       final results = await Future.wait([
-        api.getExpenses(from: _today, to: _today),
+        api.getReimbursements(),
         api.getAccounts(),
       ]);
       if (mounted) {
@@ -101,20 +103,6 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen> {
     return expenseAccounts.isNotEmpty ? expenseAccounts.first : null;
   }
 
-  /// Cash account (1010) used as the paid-through account for CASH spend.
-  Map<String, dynamic>? _resolveCashAccount() {
-    final accounts = _accounts.whereType<Map<String, dynamic>>().toList();
-    for (final account in accounts) {
-      if (account['code']?.toString() == '1010') return account;
-    }
-    for (final account in accounts) {
-      final name = account['name']?.toString().toLowerCase() ?? '';
-      if (account['type']?.toString() == 'ASSET' && name.contains('cash')) {
-        return account;
-      }
-    }
-    return null;
-  }
 
   Future<void> _submit() async {
     final amount = double.tryParse(_amountController.text.trim());
@@ -124,10 +112,9 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen> {
     }
 
     final expenseAccount = _resolveExpenseAccount(_category);
-    final cashAccount = _resolveCashAccount();
-    if (expenseAccount == null || cashAccount == null) {
+    if (expenseAccount == null) {
       _showSnack(
-        'Could not resolve expense/cash accounts. '
+        'Could not resolve an expense account. '
         'Ask your admin to set up the chart of accounts.',
       );
       return;
@@ -136,25 +123,38 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen> {
     setState(() => _submitting = true);
     try {
       final api = ref.read(apiClientProvider);
-      await api.createExpense(
+      final reimbursement = await api.submitReimbursement(
         expenseDate: _today,
         accountId: expenseAccount['id'].toString(),
         amount: amount,
-        paymentMode: 'CASH',
-        paidThroughId: cashAccount['id'].toString(),
         category: _category,
         description: _notesController.text.trim(),
+        receiptUrl: _receipt?.name,
       );
+      final reimbursementId = reimbursement['id']?.toString();
+      if (reimbursementId != null && _receipt != null) {
+        await api.uploadReimbursementReceipt(
+          reimbursementId: reimbursementId,
+          bytes: await _receipt!.readAsBytes(),
+          filename: _receipt!.name,
+        );
+      }
       if (!mounted) return;
       _amountController.clear();
       _notesController.clear();
-      _showSnack('Expense recorded.');
+      setState(() => _receipt = null);
+      _showSnack('Reimbursement submitted for approval.');
       await _load();
     } catch (e) {
       if (mounted) _showSnack('Failed to record expense: $e');
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
+  }
+
+  Future<void> _pickReceipt() async {
+    final picked = await ImagePicker().pickImage(source: ImageSource.camera, imageQuality: 80);
+    if (picked != null && mounted) setState(() => _receipt = picked);
   }
 
   void _showSnack(String message) {
@@ -258,10 +258,9 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen> {
                   Align(
                     alignment: Alignment.centerLeft,
                     child: OutlinedButton.icon(
-                      onPressed: () =>
-                          _showSnack('Receipt photo capture coming soon.'),
+                      onPressed: _pickReceipt,
                       icon: const Icon(Icons.photo_camera),
-                      label: const Text('Attach receipt photo'),
+                      label: Text(_receipt == null ? 'Attach receipt photo' : 'Receipt attached'),
                     ),
                   ),
                   const SizedBox(height: 12),

@@ -90,12 +90,12 @@ BEGIN
         BLOCK "040904e4"
         BEGIN
             VALUE "CompanyName", "com.katasticho" "\0"
-            VALUE "FileDescription", "katasticho_field" "\0"
+            VALUE "FileDescription", "Katasticho Field" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "katasticho_field" "\0"
+            VALUE "InternalName", "Katasticho Field" "\0"
             VALUE "LegalCopyright", "Copyright (C) 2026 com.katasticho. All rights reserved." "\0"
             VALUE "OriginalFilename", "katasticho_field.exe" "\0"
-            VALUE "ProductName", "katasticho_field" "\0"
+            VALUE "ProductName", "Katasticho Field" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

@@ -13,6 +13,7 @@ class DayCloseScreen extends ConsumerStatefulWidget {
 }
 
 class _DayCloseScreenState extends ConsumerState<DayCloseScreen> {
+  final _openingCashController = TextEditingController();
   final _closingCashController = TextEditingController();
   final _depositedController = TextEditingController();
   final _notesController = TextEditingController();
@@ -33,6 +34,7 @@ class _DayCloseScreenState extends ConsumerState<DayCloseScreen> {
 
   @override
   void dispose() {
+    _openingCashController.dispose();
     _closingCashController.dispose();
     _depositedController.dispose();
     _notesController.dispose();
@@ -97,6 +99,12 @@ class _DayCloseScreenState extends ConsumerState<DayCloseScreen> {
     final execution = _execution;
     if (execution == null) return;
 
+    final openingCash = double.tryParse(_openingCashController.text.trim());
+    if (openingCash == null || openingCash < 0) {
+      _showSnack('Enter a valid opening cash amount.');
+      return;
+    }
+
     final closingCash = double.tryParse(_closingCashController.text.trim());
     if (closingCash == null || closingCash < 0) {
       _showSnack('Enter the closing cash amount.');
@@ -109,7 +117,7 @@ class _DayCloseScreenState extends ConsumerState<DayCloseScreen> {
     try {
       final api = ref.read(apiClientProvider);
       final execId = execution['id']?.toString() ?? '';
-      final initiated = await api.initiateDayClose(execId);
+      final initiated = await api.initiateDayClose(execId, openingCash: openingCash);
       final dayCloseId = initiated['id']?.toString() ?? '';
       final submitted = await api.submitDayClose(
         dayCloseId,
@@ -471,6 +479,17 @@ class _DayCloseScreenState extends ConsumerState<DayCloseScreen> {
                   ),
                   const SizedBox(height: 12),
                 ],
+                TextField(
+                  controller: _openingCashController,
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                  decoration: const InputDecoration(
+                    labelText: 'Opening cash carried into route',
+                    prefixText: '₹ ',
+                  ),
+                ),
+                const SizedBox(height: 12),
                 TextField(
                   controller: _closingCashController,
                   keyboardType: const TextInputType.numberWithOptions(

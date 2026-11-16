@@ -66,17 +66,40 @@ class _CollectionsScreenState extends ConsumerState<CollectionsScreen> {
 
   Future<void> _recordCollection(String visitId, String contactName) async {
     final amountCtl = TextEditingController();
+    String paymentMethod = 'CASH';
     final proceed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text('Collect from $contactName'),
-        content: TextField(
-          controller: amountCtl,
-          keyboardType: TextInputType.number,
-          autofocus: true,
-          decoration: const InputDecoration(
-            labelText: 'Amount Collected *',
-            prefixText: '₹ ',
+        content: StatefulBuilder(
+          builder: (ctx, setDialogState) => Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: amountCtl,
+                keyboardType: TextInputType.number,
+                autofocus: true,
+                decoration: const InputDecoration(
+                  labelText: 'Amount Collected *',
+                  prefixText: '₹ ',
+                ),
+              ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                initialValue: paymentMethod,
+                decoration: const InputDecoration(labelText: 'Payment method'),
+                items: const [
+                  DropdownMenuItem(value: 'CASH', child: Text('Cash')),
+                  DropdownMenuItem(value: 'UPI', child: Text('UPI')),
+                  DropdownMenuItem(value: 'CARD', child: Text('Card')),
+                  DropdownMenuItem(value: 'BANK_TRANSFER', child: Text('Bank transfer')),
+                  DropdownMenuItem(value: 'CHEQUE', child: Text('Cheque')),
+                ],
+                onChanged: (value) {
+                  if (value != null) setDialogState(() => paymentMethod = value);
+                },
+              ),
+            ],
           ),
         ),
         actions: [
@@ -107,6 +130,7 @@ class _CollectionsScreenState extends ConsumerState<CollectionsScreen> {
           .recordCollection(
             visitId,
             collectionAmount: double.tryParse(amountCtl.text.trim()) ?? 0,
+            paymentMethod: paymentMethod,
           );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

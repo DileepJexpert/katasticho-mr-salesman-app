@@ -77,7 +77,7 @@ class _DcrScreenState extends ConsumerState<DcrScreen> {
             workType: _workType,
             remarks: _remarksCtl.text.trim(),
           );
-      _toast('DCR submitted');
+      _toast('Daily report submitted');
       await _load();
     } catch (e) {
       _toast('Submit failed: $e');
@@ -160,6 +160,7 @@ class _DcrScreenState extends ConsumerState<DcrScreen> {
   @override
   Widget build(BuildContext context) {
     final status = _dcr?['status']?.toString() ?? 'DRAFT';
+    final isPharma = ref.watch(authControllerProvider).session?.isPharma == true;
     return Scaffold(
       appBar: AppBar(
         title: const Text('Daily Report'),
@@ -210,11 +211,12 @@ class _DcrScreenState extends ConsumerState<DcrScreen> {
                             _Metric('Visits', '${_dcr?['totalVisits'] ?? 0}'),
                             _Metric('Orders ₹', '${_dcr?['totalPob'] ?? 0}'),
                             _Metric(
-                                'Samples', '${_dcr?['samplesGiven'] ?? 0}'),
+                                isPharma ? 'Samples' : 'Promo',
+                                '${_dcr?['samplesGiven'] ?? 0}'),
                           ],
                         ),
-                        if (((_dcr?['doctorsVisited'] as num?) ?? 0) > 0 ||
-                            ((_dcr?['chemistsVisited'] as num?) ?? 0) > 0) ...[
+                        if (isPharma && (((_dcr?['doctorsVisited'] as num?) ?? 0) > 0 ||
+                            ((_dcr?['chemistsVisited'] as num?) ?? 0) > 0)) ...[
                           const Divider(height: 24),
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceAround,
@@ -265,7 +267,7 @@ class _DcrScreenState extends ConsumerState<DcrScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('My sample / promo stock',
+                          Text(isPharma ? 'My sample stock' : 'My promo stock',
                               style:
                                   Theme.of(context).textTheme.titleSmall),
                           const SizedBox(height: 4),
@@ -302,14 +304,16 @@ class _DcrScreenState extends ConsumerState<DcrScreen> {
                   DropdownButtonFormField<String>(
                     initialValue: _workType,
                     decoration: const InputDecoration(labelText: 'Work type'),
-                    items: const [
-                      DropdownMenuItem(
+                    items: [
+                      const DropdownMenuItem(
                           value: 'FIELD_WORK', child: Text('Field work')),
-                      DropdownMenuItem(
+                      const DropdownMenuItem(
                           value: 'MEETING', child: Text('Meeting')),
-                      DropdownMenuItem(value: 'OFFICE', child: Text('Office')),
-                      DropdownMenuItem(value: 'CAMP', child: Text('Camp / CME')),
-                      DropdownMenuItem(value: 'LEAVE', child: Text('Leave')),
+                      const DropdownMenuItem(value: 'OFFICE', child: Text('Office')),
+                      DropdownMenuItem(
+                          value: 'CAMP',
+                          child: Text(isPharma ? 'Camp / CME' : 'Camp / Event')),
+                      const DropdownMenuItem(value: 'LEAVE', child: Text('Leave')),
                     ],
                     onChanged: (v) =>
                         setState(() => _workType = v ?? 'FIELD_WORK'),
@@ -324,7 +328,7 @@ class _DcrScreenState extends ConsumerState<DcrScreen> {
                   FilledButton.icon(
                     onPressed: _submit,
                     icon: const Icon(Icons.send),
-                    label: const Text('Submit DCR'),
+                    label: const Text('Submit Daily Report'),
                   ),
                 ],
                 const SizedBox(height: 24),
@@ -337,8 +341,8 @@ class _DcrScreenState extends ConsumerState<DcrScreen> {
                         title: Text(
                             '${d['reportDate']} — ${d['workType'] ?? ''}'),
                         subtitle: Text(
-                            'Visits ${d['totalVisits']} • POB ₹${d['totalPob']}'
-                            ' • Samples ${d['samplesGiven']}'),
+                            'Visits ${d['totalVisits']} • ${isPharma ? 'POB' : 'Orders'} ₹${d['totalPob']}'
+                            ' • ${isPharma ? 'Samples' : 'Promo'} ${d['samplesGiven']}'),
                         trailing: Text(d['status']?.toString() ?? '',
                             style: TextStyle(
                               fontSize: 11,

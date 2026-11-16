@@ -1,5 +1,5 @@
 name: katasticho_field
-description: "Katasticho Field mobile app for MR, distributor salesman, and field-force execution."
+description: "Katasticho Field mobile app for field sales reps, distributor teams, pharma MRs, and territory execution."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -35,6 +35,7 @@ dependencies:
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
   dio: ^5.9.2
+  image_picker: ^1.2.0
   flutter_riverpod: ^3.3.1
   go_router: ^17.0.0
   shared_preferences: ^2.5.3
@@ -45,7 +46,6 @@ dependencies:
   url_launcher: ^6.2.6
   flutter_background_service: ^5.0.10
   flutter_background_service_android: ^6.2.7
-  image_picker: ^1.1.2
   signature: ^5.5.0
 
 dev_dependencies:

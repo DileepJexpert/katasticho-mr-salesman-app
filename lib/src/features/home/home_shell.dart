@@ -6,6 +6,7 @@ import '../collections/collections_screen.dart';
 import '../dashboard/today_dashboard_screen.dart';
 import '../dayclose/day_close_screen.dart';
 import '../expenses/expenses_screen.dart';
+import '../field/field_models.dart';
 import '../mr/dcr_screen.dart';
 import '../mr/tour_plan_screen.dart';
 import '../orders/orders_screen.dart';
@@ -38,6 +39,7 @@ class _HomeShellState extends ConsumerState<HomeShell> {
   @override
   Widget build(BuildContext context) {
     final session = ref.watch(authControllerProvider).session;
+    final isPharma = session?.isPharma == true;
 
     return Scaffold(
       appBar: AppBar(
@@ -46,14 +48,14 @@ class _HomeShellState extends ConsumerState<HomeShell> {
           children: [
             const Text('Katasticho Field'),
             Text(
-              '${session?.fullName ?? 'Field user'} · ${session?.role ?? ''}',
+              '${session?.fullName ?? 'Field user'} · ${session?.fieldProfile.label ?? 'Field team'}',
               style: Theme.of(context).textTheme.bodySmall,
             ),
           ],
         ),
         actions: [
           IconButton(
-            tooltip: 'Tour Plan',
+            tooltip: isPharma ? 'Tour Plan' : 'Route Plan',
             onPressed: () {
               Navigator.of(context).push(
                 MaterialPageRoute<void>(

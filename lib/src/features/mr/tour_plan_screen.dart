@@ -40,6 +40,9 @@ class _TourPlanScreenState extends ConsumerState<TourPlanScreen> {
   Future<void> _createPlan() async {
     final now = DateTime.now();
     final nextMonth = DateTime(now.year, now.month + 1, 1);
+    final planNoun = ref.read(authControllerProvider).session?.isPharma == true
+        ? 'Tour Plan'
+        : 'Route Plan';
     final thisMonth = DateTime(now.year, now.month, 1);
     DateTime selected = nextMonth;
 
@@ -47,7 +50,7 @@ class _TourPlanScreenState extends ConsumerState<TourPlanScreen> {
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDialogState) => AlertDialog(
-          title: const Text('New Tour Plan'),
+          title: Text('New $planNoun'),
           content: RadioGroup<DateTime>(
             groupValue: selected,
             onChanged: (v) => setDialogState(() => selected = v!),
@@ -104,8 +107,11 @@ class _TourPlanScreenState extends ConsumerState<TourPlanScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final planLabel = ref.watch(authControllerProvider).session?.isPharma == true
+        ? 'Tour Plans'
+        : 'Route Plans';
     return Scaffold(
-      appBar: AppBar(title: const Text('Tour Plans')),
+      appBar: AppBar(title: Text(planLabel)),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _createPlan,
         icon: const Icon(Icons.add),
@@ -114,7 +120,7 @@ class _TourPlanScreenState extends ConsumerState<TourPlanScreen> {
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _plans.isEmpty
-              ? const Center(child: Text('No tour plans yet'))
+              ? Center(child: Text('No $planLabel yet'))
               : RefreshIndicator(
                   onRefresh: _load,
                   child: ListView.builder(
@@ -205,6 +211,7 @@ class _TourPlanDetailScreenState extends ConsumerState<TourPlanDetailScreen> {
     if (date == null || !mounted) return;
 
     String activity = 'FIELD_WORK';
+    final isPharma = ref.read(authControllerProvider).session?.isPharma == true;
     final areaCtl = TextEditingController();
     final notesCtl = TextEditingController();
     final ok = await showDialog<bool>(
@@ -218,13 +225,15 @@ class _TourPlanDetailScreenState extends ConsumerState<TourPlanDetailScreen> {
               DropdownButtonFormField<String>(
                 initialValue: activity,
                 decoration: const InputDecoration(labelText: 'Activity'),
-                items: const [
-                  DropdownMenuItem(
+                items: [
+                  const DropdownMenuItem(
                       value: 'FIELD_WORK', child: Text('Field work')),
-                  DropdownMenuItem(value: 'MEETING', child: Text('Meeting')),
-                  DropdownMenuItem(value: 'OFFICE', child: Text('Office')),
-                  DropdownMenuItem(value: 'CAMP', child: Text('Camp / CME')),
-                  DropdownMenuItem(value: 'LEAVE', child: Text('Leave')),
+                  const DropdownMenuItem(value: 'MEETING', child: Text('Meeting')),
+                  const DropdownMenuItem(value: 'OFFICE', child: Text('Office')),
+                  DropdownMenuItem(
+                      value: 'CAMP',
+                      child: Text(isPharma ? 'Camp / CME' : 'Camp / Event')),
+                  const DropdownMenuItem(value: 'LEAVE', child: Text('Leave')),
                 ],
                 onChanged: (v) =>
                     setDialogState(() => activity = v ?? 'FIELD_WORK'),
@@ -278,7 +287,7 @@ class _TourPlanDetailScreenState extends ConsumerState<TourPlanDetailScreen> {
   Future<void> _submit() async {
     try {
       await ref.read(apiClientProvider).submitTourPlan(widget.planId);
-      _toast('Tour plan submitted for approval');
+      _toast('Plan submitted for approval');
       await _load();
     } catch (e) {
       _toast('Submit failed: $e');
@@ -297,7 +306,9 @@ class _TourPlanDetailScreenState extends ConsumerState<TourPlanDetailScreen> {
       appBar: AppBar(
         title: Text(_plan != null
             ? _monthLabel(DateTime.parse(_plan!['planMonth'].toString()))
-            : 'Tour Plan'),
+            : (ref.read(authControllerProvider).session?.isPharma == true
+                ? 'Tour Plan'
+                : 'Route Plan')),
         actions: [if (_plan != null) _StatusChip(status: status)],
       ),
       floatingActionButton: _editable

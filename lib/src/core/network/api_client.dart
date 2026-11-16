@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 
 import 'package:dio/dio.dart';
 
@@ -28,7 +28,7 @@ class FieldApiClient {
   /// persist the new session (SessionStore) and update auth state.
   void Function(FieldSession session)? onSessionRefreshed;
 
-  /// Invoked when a token refresh fails — the session is no longer usable
+  /// Invoked when a token refresh fails â€” the session is no longer usable
   /// and the user should be sent back to the login screen.
   void Function()? onSessionExpired;
 
@@ -38,7 +38,7 @@ class FieldApiClient {
     _session = session;
   }
 
-  // ── Auth ──────────────────────────────────────────────────────
+  // â”€â”€ Auth â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   Future<Map<String, dynamic>> login({
     required String identifier,
@@ -67,7 +67,7 @@ class FieldApiClient {
     return _unwrap(response.data);
   }
 
-  // ── Assignments ───────────────────────────────────────────────
+  // â”€â”€ Assignments â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   Future<List<dynamic>> getMyAssignments() async {
     final response = await _dio.get<Map<String, dynamic>>(
@@ -77,7 +77,7 @@ class FieldApiClient {
     return _unwrapList(response.data);
   }
 
-  // ── Route Executions ──────────────────────────────────────────
+  // â”€â”€ Route Executions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   Future<List<dynamic>> getMyTodayExecutions() async {
     final response = await _dio.get<Map<String, dynamic>>(
@@ -130,7 +130,7 @@ class FieldApiClient {
     return _unwrap(response.data);
   }
 
-  // ── Visits ────────────────────────────────────────────────────
+  // â”€â”€ Visits â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   Future<List<dynamic>> getVisits(String executionId) async {
     final response = await _dio.get<Map<String, dynamic>>(
@@ -196,10 +196,17 @@ class FieldApiClient {
   Future<Map<String, dynamic>> recordCollection(
     String visitId, {
     required double collectionAmount,
+      String paymentMethod = 'CASH',
+      String? referenceNumber,
   }) async {
     final response = await _dio.post<Map<String, dynamic>>(
       '/api/v1/field-sales/visits/$visitId/record-collection',
-      data: {'collectionAmount': collectionAmount},
+      data: {
+        'collectionAmount': collectionAmount,
+        'paymentMethod': paymentMethod,
+        if (referenceNumber != null && referenceNumber.isNotEmpty)
+          'referenceNumber': referenceNumber,
+      },
       options: _authOptions(),
     );
     return _unwrap(response.data);
@@ -241,9 +248,13 @@ class FieldApiClient {
 
   // ── Day Close ─────────────────────────────────────────────────
 
-  Future<Map<String, dynamic>> initiateDayClose(String executionId) async {
+  Future<Map<String, dynamic>> initiateDayClose(
+    String executionId, {
+    double? openingCash,
+  }) async {
     final response = await _dio.post<Map<String, dynamic>>(
       '/api/v1/field-sales/day-close/initiate/$executionId',
+      data: {if (openingCash != null) 'openingCash': openingCash},
       options: _authOptions(),
     );
     return _unwrap(response.data);
@@ -275,7 +286,7 @@ class FieldApiClient {
     return _unwrap(response.data);
   }
 
-  // ── Dashboard ─────────────────────────────────────────────────
+  // â”€â”€ Dashboard â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   Future<Map<String, dynamic>> getDashboard({
     required String from,
@@ -289,7 +300,7 @@ class FieldApiClient {
     return _unwrap(response.data);
   }
 
-  // ── Targets ───────────────────────────────────────────────────
+  // â”€â”€ Targets â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   Future<List<dynamic>> getMyTargets() async {
     final response = await _dio.get<Map<String, dynamic>>(
@@ -299,9 +310,9 @@ class FieldApiClient {
     return _unwrapList(response.data);
   }
 
-  // ── Contacts (Parties) ────────────────────────────────────────
+  // â”€â”€ Contacts (Parties) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-  /// GET /api/v1/contacts — paged (Spring Page); returns `data.content`.
+  /// GET /api/v1/contacts â€” paged (Spring Page); returns `data.content`.
   /// [type] filters by contact type: CUSTOMER / VENDOR / BOTH.
   Future<List<dynamic>> getContacts({String? search, String? type}) async {
     final response = await _dio.get<Map<String, dynamic>>(
@@ -324,9 +335,9 @@ class FieldApiClient {
     return _unwrap(response.data);
   }
 
-  // ── Expenses ──────────────────────────────────────────────────
+  // â”€â”€ Expenses â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-  /// GET /api/v1/expenses — paged response; returns `data.content`.
+  /// GET /api/v1/expenses â€” paged response; returns `data.content`.
   /// [from] / [to] are ISO dates (yyyy-MM-dd).
   Future<List<dynamic>> getExpenses({String? from, String? to}) async {
     final response = await _dio.get<Map<String, dynamic>>(
@@ -341,7 +352,7 @@ class FieldApiClient {
     return _unwrapList(response.data);
   }
 
-  /// POST /api/v1/expenses — requires expenseDate, accountId (expense
+  /// POST /api/v1/expenses â€” requires expenseDate, accountId (expense
   /// account), amount, paymentMode, paidThroughId (cash/bank account).
   Future<Map<String, dynamic>> createExpense({
     required String expenseDate,
@@ -369,9 +380,61 @@ class FieldApiClient {
     return _unwrap(response.data);
   }
 
-  // ── Chart of Accounts ─────────────────────────────────────────
+  /// POST /api/v1/employee-reimbursements. The logged-in field employee is
+  /// resolved by the backend when employeeId is omitted.
+  Future<Map<String, dynamic>> submitReimbursement({
+    required String expenseDate,
+    required String accountId,
+    required double amount,
+    required String category,
+    required String description,
+    String? receiptUrl,
+  }) async {
+    final response = await _dio.post<Map<String, dynamic>>(
+      '/api/v1/employee-reimbursements',
+      data: {
+        'expenseDate': expenseDate,
+        'accountId': accountId,
+        'amount': amount,
+        'category': category,
+        'description': description,
+        if (receiptUrl != null && receiptUrl.isNotEmpty) 'receiptUrl': receiptUrl,
+      },
+      options: _authOptions(),
+    );
+    return _unwrap(response.data);
+  }
 
-  /// GET /api/v1/accounts — flat list used to resolve the expense
+  Future<List<dynamic>> getReimbursements({String? status}) async {
+    final response = await _dio.get<Map<String, dynamic>>(
+      '/api/v1/employee-reimbursements',
+      queryParameters: {
+        'size': 50,
+        if (status != null && status.isNotEmpty) 'status': status,
+      },
+      options: _authOptions(),
+    );
+    return _unwrapList(response.data);
+  }
+
+  Future<void> uploadReimbursementReceipt({
+    required String reimbursementId,
+    required List<int> bytes,
+    required String filename,
+  }) async {
+    final form = FormData.fromMap({
+      'file': MultipartFile.fromBytes(bytes, filename: filename),
+    });
+    await _dio.post<void>(
+      '/api/v1/attachments/EMPLOYEE_REIMBURSEMENT/$reimbursementId',
+      data: form,
+      options: _authOptions()..contentType = 'multipart/form-data',
+    );
+  }
+
+  // â”€â”€ Chart of Accounts â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+  /// GET /api/v1/accounts â€” flat list used to resolve the expense
   /// account and the cash (paid-through) account for expense entry.
   Future<List<dynamic>> getAccounts() async {
     final response = await _dio.get<Map<String, dynamic>>(
@@ -381,9 +444,9 @@ class FieldApiClient {
     return _unwrapList(response.data);
   }
 
-  // ── Catalog & Sales Orders ────────────────────────────────────
+  // â”€â”€ Catalog & Sales Orders â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-  /// GET /api/v1/items — paged (Spring Page); returns `data.content`.
+  /// GET /api/v1/items â€” paged (Spring Page); returns `data.content`.
   /// Each item: id, sku, name, salePrice, mrp, gstRate, defaultTaxGroupId,
   /// unitOfMeasure, hsnCode, totalOnHand, trackInventory.
   Future<List<dynamic>> searchItems(String query) async {
@@ -399,11 +462,11 @@ class FieldApiClient {
     return _unwrapList(response.data);
   }
 
-  /// POST /api/v1/sales-orders — creates a real Sales Order.
+  /// POST /api/v1/sales-orders â€” creates a real Sales Order.
   /// Lines: [{'itemId', 'description', 'quantity', 'rate', 'discountPct',
   /// 'taxGroupId'?, 'hsnCode'?}]. Returns the full SO map including
   /// `id`, `salesOrderNumber`, `totalAmount`, `status` and `warnings`
-  /// (warnings arrive AFTER the SO has been created — informational only).
+  /// (warnings arrive AFTER the SO has been created â€” informational only).
   Future<Map<String, dynamic>> createSalesOrder({
     required String contactId,
     required List<Map<String, dynamic>> lines,
@@ -421,7 +484,7 @@ class FieldApiClient {
     return _unwrap(response.data);
   }
 
-  // ── Van Stock ─────────────────────────────────────────────────
+  // â”€â”€ Van Stock â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   Future<List<dynamic>> getVanStock(String vanId) async {
     final response = await _dio.get<Map<String, dynamic>>(
@@ -498,7 +561,7 @@ class FieldApiClient {
     return _unwrapList(response.data);
   }
 
-  // ── MR reporting: tour plans + DCR ───────────────────────────
+  // â”€â”€ MR reporting: tour plans + DCR â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   Future<Map<String, dynamic>> createTourPlan(
     String planMonth, {
@@ -612,7 +675,7 @@ class FieldApiClient {
     return _unwrapList(response.data);
   }
 
-  // ── Detail aids (e-detailing) ─────────────────────────────────
+  // â”€â”€ Detail aids (e-detailing) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   Future<List<dynamic>> getDetailAids() async {
     final response = await _dio.get<Map<String, dynamic>>(
@@ -642,7 +705,7 @@ class FieldApiClient {
     return _unwrapList(response.data);
   }
 
-  // ── Attendance + leave ────────────────────────────────────────
+  // â”€â”€ Attendance + leave â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   Future<Map<String, dynamic>?> getAttendanceToday() async {
     final response = await _dio.get<Map<String, dynamic>>(
@@ -710,7 +773,7 @@ class FieldApiClient {
     return _unwrapList(response.data);
   }
 
-  // ── Allowance + samples (all verticals) ───────────────────────
+  // â”€â”€ Allowance + samples (all verticals) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   Future<Map<String, dynamic>> getMyAllowance({String? date}) async {
     final response = await _dio.get<Map<String, dynamic>>(
@@ -741,7 +804,7 @@ class FieldApiClient {
     return _unwrapList(response.data);
   }
 
-  // ── Location tracking ─────────────────────────────────────────
+  // â”€â”€ Location tracking â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   /// Sends a batch of GPS breadcrumb pings. Each ping: latitude,
   /// longitude, accuracyM, recordedAt (ISO-8601), routeExecutionId.
@@ -756,7 +819,7 @@ class FieldApiClient {
     return _unwrap(response.data);
   }
 
-  // ── Offline replay ────────────────────────────────────────────
+  // â”€â”€ Offline replay â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   /// Generic authenticated POST used by the offline queue to replay
   /// queued actions against their original endpoint + body.
@@ -772,7 +835,7 @@ class FieldApiClient {
     return _unwrap(response.data);
   }
 
-  // ── Helpers ───────────────────────────────────────────────────
+  // â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   Options _authOptions() {
     final session = _session;
@@ -801,7 +864,7 @@ class FieldApiClient {
   }
 }
 
-/// Transparent 401 → refresh → retry interceptor.
+/// Transparent 401 â†’ refresh â†’ retry interceptor.
 ///
 /// On a 401 from any authenticated call it refreshes the access token via
 /// `POST /api/v1/auth/refresh` (serialized through a shared [Completer] so
