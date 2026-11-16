@@ -3,29 +3,31 @@ import 'dart:async';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../auth/auth_controller.dart';
 
-/// Builds a real line-item Sales Order against the ERP catalog and links
-/// it to the field visit.
+/// Builds a real line-item Sales Order or Pharma POB against the ERP catalog.
 ///
-/// Flow: search items → build cart → POST /api/v1/sales-orders →
-/// acknowledge any warnings (SO is already created at that point) →
-/// record-order on the visit with the real salesOrderId + totalAmount.
-///
-/// SO creation is intentionally NOT offline-queued — use the "Quick
-/// amount" option (which queues offline) when there is no connectivity.
+/// Flow:
+/// - Search catalog items -> add to cart -> adjust quantity & rate
+/// - For Chemists / Pharma: select preferred Supplying Stockist -> books Chemist POB
+///   with 1-click WhatsApp consolidated supply advice to stockist.
+/// - For general customers / distributors: creates standard ERP Sales Order.
+/// - Links to field visit when visitId is present.
 class OrderBuilderScreen extends ConsumerStatefulWidget {
   const OrderBuilderScreen({
     super.key,
-    required this.visitId,
+    this.visitId = '',
     required this.contactId,
     required this.contactName,
+    this.medicalCategory,
   });
 
   final String visitId;
   final String contactId;
   final String contactName;
+  final String? medicalCategory;
 
   @override
   ConsumerState<OrderBuilderScreen> createState() => _OrderBuilderScreenState();
@@ -69,15 +71,19 @@ class _OrderBuilderScreenState extends ConsumerState<OrderBuilderScreen> {
   String? _searchError;
 
   final List<_CartLine> _cart = [];
-  // Controllers of removed cart lines — disposed with the screen so we
-  // never dispose a controller whose TextField may still be in the tree.
   final List<_CartLine> _removedLines = [];
   bool _submitting = false;
+
+  // Pharma Stockist Selection
+  String? _selectedStockistId;
+  String? _selectedStockistName;
+  List<Map<String, dynamic>> _stockists = [];
 
   @override
   void initState() {
     super.initState();
     _searchCtl.addListener(_onSearchChanged);
+    _loadStockists();
   }
 
   @override
@@ -94,6 +100,33 @@ class _OrderBuilderScreenState extends ConsumerState<OrderBuilderScreen> {
     super.dispose();
   }
 
+  Future<void> _loadStockists() async {
+    final medCat = widget.medicalCategory?.toUpperCase();
+    final isChemistOrPharma = medCat == 'CHEMIST' ||
+        medCat == 'RETAILER' ||
+        ref.read(authControllerProvider).session?.isPharma == true;
+
+    if (!isChemistOrPharma) return;
+
+    try {
+      final contacts = await ref.read(apiClientProvider).getContacts();
+      final stockists = contacts.whereType<Map<String, dynamic>>().where((c) {
+        final cat = c['medicalCategory']?.toString().toUpperCase();
+        return cat == 'STOCKIST' || cat == 'DISTRIBUTOR';
+      }).toList();
+
+      if (mounted) {
+        setState(() {
+          _stockists = stockists;
+          if (stockists.isNotEmpty) {
+            _selectedStockistId = stockists.first['id']?.toString();
+            _selectedStockistName = stockists.first['displayName']?.toString();
+          }
+        });
+      }
+    } catch (_) {}
+  }
+
   void _onSearchChanged() {
     _debounce?.cancel();
     final query = _searchCtl.text.trim();
@@ -105,7 +138,6 @@ class _OrderBuilderScreenState extends ConsumerState<OrderBuilderScreen> {
       });
       return;
     }
-    // Rebuild so the clear (suffix) icon tracks the text state.
     setState(() {});
     _debounce = Timer(const Duration(milliseconds: 400), () {
       _runSearch(query);
@@ -209,6 +241,124 @@ class _OrderBuilderScreenState extends ConsumerState<OrderBuilderScreen> {
     setState(() => _submitting = true);
     final api = ref.read(apiClientProvider);
 
+    // ── PATH 1: Pharma Chemist POB Order ─────────────────────────
+    if (_selectedStockistId != null && _selectedStockistId!.isNotEmpty) {
+      try {
+        final pobLines = _cart
+            .map((line) => <String, dynamic>{
+                  'itemId': line.itemId,
+                  'quantity': line.quantity,
+                  'rate': line.effectiveRate,
+                })
+            .toList();
+
+        final todayStr = DateTime.now().toIso8601String().split('T')[0];
+        final pob = await api.createPharmaPob(
+          chemistId: widget.contactId,
+          stockistId: _selectedStockistId!,
+          orderDate: todayStr,
+          fieldVisitId: widget.visitId.isNotEmpty ? widget.visitId : null,
+          notes: 'Field POB — ${widget.contactName}',
+          lines: pobLines,
+        );
+
+        final pobNumber = pob['orderNumber']?.toString() ?? 'POB';
+        final totalAmount = (pob['totalAmount'] as num?)?.toDouble() ?? _grandTotal;
+
+        if (widget.visitId.isNotEmpty) {
+          try {
+            await api.recordOrder(
+              widget.visitId,
+              salesOrderId: pobNumber,
+              orderValue: totalAmount,
+            );
+          } catch (_) {}
+        }
+
+        if (!mounted) return;
+        setState(() => _submitting = false);
+
+        await showDialog<void>(
+          context: context,
+          barrierDismissible: false,
+          builder: (ctx) => AlertDialog(
+            title: const Row(
+              children: [
+                Icon(Icons.check_circle, color: Color(0xFF059669)),
+                SizedBox(width: 8),
+                Text('POB Booked!'),
+              ],
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Order Number: $pobNumber',
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                ),
+                const SizedBox(height: 6),
+                Text('Chemist: ${widget.contactName}'),
+                Text('Supplying Stockist: ${_selectedStockistName ?? 'Stockist'}'),
+                Text(
+                  'Total Value: ${_money(totalAmount)}',
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  'Send the consolidated supply advice to this stockist via WhatsApp.',
+                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Done'),
+              ),
+              FilledButton.icon(
+                style: FilledButton.styleFrom(backgroundColor: const Color(0xFF25D366)),
+                icon: const Icon(Icons.share, size: 16),
+                label: const Text('WhatsApp Stockist'),
+                onPressed: () async {
+                  try {
+                    final advice = await api.getStockistSupplyAdvice(_selectedStockistId!);
+                    final shareText = advice['shareableWhatsAppText']?.toString() ??
+                        'POB Order $pobNumber booked for ${widget.contactName} - Value: ${_money(totalAmount)}';
+                    final encoded = Uri.encodeComponent(shareText);
+                    final uri = Uri.parse('https://wa.me/?text=$encoded');
+                    if (await canLaunchUrl(uri)) {
+                      await launchUrl(uri, mode: LaunchMode.externalApplication);
+                    }
+                  } catch (_) {
+                    final fallback =
+                        'POB Order $pobNumber booked for ${widget.contactName} (Value: ${_money(totalAmount)}). Please dispatch.';
+                    final uri = Uri.parse('https://wa.me/?text=${Uri.encodeComponent(fallback)}');
+                    if (await canLaunchUrl(uri)) {
+                      await launchUrl(uri, mode: LaunchMode.externalApplication);
+                    }
+                  }
+                  if (ctx.mounted) Navigator.pop(ctx);
+                },
+              ),
+            ],
+          ),
+        );
+
+        if (mounted) Navigator.of(context).pop(true);
+        return;
+      } catch (e) {
+        if (mounted) {
+          setState(() => _submitting = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('POB Booking failed: $e')),
+          );
+        }
+        return;
+      }
+    }
+
+    // ── PATH 2: Standard ERP Sales Order ─────────────────────────
     final lines = _cart
         .map(
           (line) => <String, dynamic>{
@@ -230,7 +380,9 @@ class _OrderBuilderScreenState extends ConsumerState<OrderBuilderScreen> {
       so = await api.createSalesOrder(
         contactId: widget.contactId,
         lines: lines,
-        notes: 'Field visit order — ${widget.contactName}',
+        notes: widget.visitId.isNotEmpty
+            ? 'Field visit order — ${widget.contactName}'
+            : 'Field order — ${widget.contactName}',
       );
     } catch (e) {
       if (mounted) {
@@ -252,9 +404,6 @@ class _OrderBuilderScreenState extends ConsumerState<OrderBuilderScreen> {
 
     if (!mounted) return;
 
-    // Warnings arrive ON the create response, AFTER the SO already exists,
-    // so this is an acknowledge-only dialog (no Cancel — that would orphan
-    // the created SO).
     final warnings = (so['warnings'] as List?)
         ?.map((w) => w.toString())
         .where((w) => w.isNotEmpty)
@@ -308,28 +457,30 @@ class _OrderBuilderScreenState extends ConsumerState<OrderBuilderScreen> {
     final soNumber = so['salesOrderNumber']?.toString() ?? '';
     final totalAmount = (so['totalAmount'] as num?)?.toDouble() ?? _grandTotal;
 
-    // Link the created SO to the visit.
-    try {
-      await api.recordOrder(
-        widget.visitId,
-        salesOrderId: soId,
-        orderValue: totalAmount,
-      );
-    } catch (e) {
-      if (mounted) {
-        setState(() => _submitting = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Order $soNumber created, but linking it to the visit failed: '
-              '$e',
-            ),
-            backgroundColor: Colors.orange,
-          ),
+    // Link the created SO to the visit if on a visit.
+    if (widget.visitId.isNotEmpty) {
+      try {
+        await api.recordOrder(
+          widget.visitId,
+          salesOrderId: soId,
+          orderValue: totalAmount,
         );
-        Navigator.of(context).pop(true);
+      } catch (e) {
+        if (mounted) {
+          setState(() => _submitting = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Order $soNumber created, but linking it to the visit failed: '
+                '$e',
+              ),
+              backgroundColor: Colors.orange,
+            ),
+          );
+          Navigator.of(context).pop(true);
+        }
+        return;
       }
-      return;
     }
 
     if (!mounted) return;
@@ -362,8 +513,8 @@ class _OrderBuilderScreenState extends ConsumerState<OrderBuilderScreen> {
                 Icon(Icons.person_off, size: 48, color: Colors.grey.shade400),
                 const SizedBox(height: 12),
                 const Text(
-                  'No customer linked to this visit.\n'
-                  'Use the Quick amount option instead.',
+                  'No customer linked to this order.\n'
+                  'Select a party from the Parties list.',
                   textAlign: TextAlign.center,
                 ),
               ],
@@ -378,7 +529,9 @@ class _OrderBuilderScreenState extends ConsumerState<OrderBuilderScreen> {
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Build Order'),
+            Text(
+              _selectedStockistId != null ? 'Chemist POB Booking' : 'Build Order',
+            ),
             Text(
               widget.contactName,
               style: theme.textTheme.bodySmall?.copyWith(
@@ -390,12 +543,68 @@ class _OrderBuilderScreenState extends ConsumerState<OrderBuilderScreen> {
       ),
       body: Column(
         children: [
+          // Preferred Supplying Stockist Selector (for Pharma POB)
+          if (_stockists.isNotEmpty)
+            Container(
+              margin: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+              decoration: BoxDecoration(
+                color: const Color(0xFFEEF2FF), // Indigo tint
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFFC7D2FE)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.warehouse, size: 20, color: Color(0xFF4F46E5)),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: DropdownButtonHideUnderline(
+                      child: DropdownButton<String>(
+                        isExpanded: true,
+                        value: _selectedStockistId,
+                        hint: const Text('Select Supplying Stockist (POB)'),
+                        items: [
+                          const DropdownMenuItem(
+                            value: '',
+                            child: Text('Direct Company Order (No Stockist)'),
+                          ),
+                          ..._stockists.map((s) {
+                            final id = s['id']?.toString() ?? '';
+                            final name = s['displayName']?.toString() ?? 'Stockist';
+                            return DropdownMenuItem(
+                              value: id,
+                              child: Text('Stockist: $name'),
+                            );
+                          }),
+                        ],
+                        onChanged: (val) {
+                          setState(() {
+                            _selectedStockistId = (val != null && val.isNotEmpty) ? val : null;
+                            if (_selectedStockistId != null) {
+                              final match = _stockists.firstWhere(
+                                (s) => s['id']?.toString() == val,
+                                orElse: () => {},
+                              );
+                              _selectedStockistName = match['displayName']?.toString();
+                            } else {
+                              _selectedStockistName = null;
+                            }
+                          });
+                        },
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+          // Search catalog items
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
             child: TextField(
               controller: _searchCtl,
               decoration: InputDecoration(
-                hintText: 'Search items by name or SKU…',
+                hintText: 'Search catalog items by name or SKU…',
                 prefixIcon: const Icon(Icons.search),
                 suffixIcon: _searchCtl.text.isNotEmpty
                     ? IconButton(
@@ -411,6 +620,7 @@ class _OrderBuilderScreenState extends ConsumerState<OrderBuilderScreen> {
               textInputAction: TextInputAction.search,
             ),
           ),
+
           Expanded(
             child: ListView(
               padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
@@ -446,7 +656,7 @@ class _OrderBuilderScreenState extends ConsumerState<OrderBuilderScreen> {
                 if (_cart.isNotEmpty) ...[
                   const SizedBox(height: 12),
                   Text(
-                    'Cart (${_cart.length} item${_cart.length == 1 ? '' : 's'})',
+                    'Order Cart (${_cart.length} item${_cart.length == 1 ? '' : 's'})',
                     style: theme.textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.w800,
                     ),
@@ -466,8 +676,7 @@ class _OrderBuilderScreenState extends ConsumerState<OrderBuilderScreen> {
                           const SizedBox(width: 10),
                           const Expanded(
                             child: Text(
-                              'Search the catalog above and tap an item to '
-                              'add it to the cart.',
+                              'Search the catalog above and tap an item to add it to the cart.',
                             ),
                           ),
                         ],
@@ -500,7 +709,7 @@ class _OrderBuilderScreenState extends ConsumerState<OrderBuilderScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text('Total', style: theme.textTheme.bodySmall),
+                    Text('Total Amount', style: theme.textTheme.bodySmall),
                     Text(
                       _money(_grandTotal),
                       style: theme.textTheme.titleLarge?.copyWith(
@@ -511,15 +720,26 @@ class _OrderBuilderScreenState extends ConsumerState<OrderBuilderScreen> {
                 ),
               ),
               FilledButton.icon(
+                style: FilledButton.styleFrom(
+                  backgroundColor: _selectedStockistId != null
+                      ? const Color(0xFF059669) // Emerald for POB
+                      : null,
+                ),
                 onPressed: _cart.isEmpty || _submitting ? null : _placeOrder,
                 icon: _submitting
                     ? const SizedBox(
                         height: 18,
                         width: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                       )
                     : const Icon(Icons.check_circle_outline, size: 20),
-                label: Text(_submitting ? 'Placing…' : 'Place Order'),
+                label: Text(
+                  _submitting
+                      ? 'Booking…'
+                      : _selectedStockistId != null
+                          ? 'Book POB'
+                          : 'Place Order',
+                ),
               ),
             ],
           ),
@@ -591,7 +811,6 @@ class _OrderBuilderScreenState extends ConsumerState<OrderBuilderScreen> {
             const SizedBox(height: 8),
             Row(
               children: [
-                // Qty stepper
                 IconButton(
                   visualDensity: VisualDensity.compact,
                   icon: Icon(
@@ -625,7 +844,6 @@ class _OrderBuilderScreenState extends ConsumerState<OrderBuilderScreen> {
                   onPressed: () => _changeQty(line, 1),
                 ),
                 const Spacer(),
-                // Editable rate
                 SizedBox(
                   width: 110,
                   child: TextField(

@@ -9,6 +9,7 @@ import '../../core/location/location_ping_tracker.dart';
 import '../../core/location/location_service.dart';
 import '../../core/storage/offline_queue_provider.dart';
 import '../auth/auth_controller.dart';
+import '../mr/rcpa_sheet.dart';
 import '../orders/order_builder_screen.dart';
 import '../shared/field_widgets.dart';
 
@@ -714,6 +715,111 @@ class _VisitsScreenState extends ConsumerState<VisitsScreen> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
+  Future<void> _openRcpa(Map<String, dynamic> visit) async {
+    final visitId = visit['id']?.toString() ?? '';
+    final contactId = visit['contactId']?.toString() ?? '';
+    final contactName = visit['contactName']?.toString() ?? 'Chemist';
+
+    final recorded = await RcpaSheet.show(
+      context,
+      chemistId: contactId,
+      chemistName: contactName,
+      fieldVisitId: visitId,
+    );
+    if (recorded == true && mounted) {
+      await _loadData();
+    }
+  }
+
+  Future<void> _recordJointVisit(String visitId) async {
+    final managerCtl = TextEditingController();
+    String designation = 'ASM';
+    final notesCtl = TextEditingController();
+
+    final proceed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.groups_outlined, color: Color(0xFF2563EB)),
+              SizedBox(width: 8),
+              Text('Record Joint Visit'),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: managerCtl,
+                decoration: const InputDecoration(
+                  labelText: 'Manager Name *',
+                  hintText: 'e.g. Ramesh Sharma',
+                ),
+              ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                initialValue: designation,
+                decoration: const InputDecoration(labelText: 'Designation'),
+                items: const [
+                  DropdownMenuItem(value: 'ASM', child: Text('Area Sales Manager (ASM)')),
+                  DropdownMenuItem(value: 'RSM', child: Text('Regional Sales Manager (RSM)')),
+                  DropdownMenuItem(value: 'ZSM', child: Text('Zonal Sales Manager (ZSM)')),
+                  DropdownMenuItem(value: 'PMT', child: Text('Product Management Team (PMT)')),
+                ],
+                onChanged: (val) {
+                  if (val != null) setDialogState(() => designation = val);
+                },
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: notesCtl,
+                decoration: const InputDecoration(
+                  labelText: 'Joint Visit Notes',
+                  hintText: 'Doctor reaction, detailing feedback...',
+                ),
+                maxLines: 2,
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                if (managerCtl.text.trim().isEmpty) {
+                  ScaffoldMessenger.of(ctx).showSnackBar(
+                    const SnackBar(content: Text('Please enter manager name')),
+                  );
+                  return;
+                }
+                Navigator.pop(ctx, true);
+              },
+              child: const Text('Save Joint Visit'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (proceed != true || !mounted) return;
+
+    try {
+      await ref.read(apiClientProvider).markJointVisit(
+            visitId,
+            jointWith: managerCtl.text.trim(),
+            managerDesignation: designation,
+            notes: notesCtl.text.trim(),
+          );
+      _showSuccess('Joint visit recorded with $designation ${managerCtl.text.trim()}');
+      await _loadData();
+    } catch (e) {
+      _showError('Failed to record joint visit: $e');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final session = ref.watch(authControllerProvider).session;
@@ -906,6 +1012,35 @@ class _VisitsScreenState extends ConsumerState<VisitsScreen> {
               ],
             ),
 
+            if (visit['jointVisitUserId'] != null || visit['jointWith'] != null) ...[
+              const SizedBox(height: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEEF2FF),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: const Color(0xFFC7D2FE)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.groups, size: 14, color: Color(0xFF4F46E5)),
+                    const SizedBox(width: 4),
+                    Text(
+                      visit['jointWith'] != null
+                          ? 'Joint Visit: ${visit['jointWith']} (${visit['managerDesignation'] ?? 'ASM'})'
+                          : 'Joint Visit (${visit['managerDesignation'] ?? 'ASM'})',
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: Color(0xFF4F46E5),
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+
             if (checkInTime != null) ...[
               const SizedBox(height: 6),
               Text('Check-in: $checkInTime', style: theme.textTheme.bodySmall),
@@ -982,6 +1117,16 @@ class _VisitsScreenState extends ConsumerState<VisitsScreen> {
                     label: const Text('Aids'),
                   ),
                   OutlinedButton.icon(
+                    onPressed: () => _openRcpa(visit),
+                    icon: const Icon(Icons.analytics_outlined, size: 18),
+                    label: const Text('RCPA'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: () => _recordJointVisit(visitId),
+                    icon: const Icon(Icons.groups_outlined, size: 18),
+                    label: const Text('Joint'),
+                  ),
+                  OutlinedButton.icon(
                     onPressed: () => _recordPod(visit),
                     icon: const Icon(Icons.assignment_turned_in, size: 18),
                     label: const Text('POD'),
@@ -997,6 +1142,16 @@ class _VisitsScreenState extends ConsumerState<VisitsScreen> {
                     onPressed: () => _recordCollection(visitId),
                     icon: const Icon(Icons.payments, size: 18),
                     label: const Text('Collect'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: () => _openRcpa(visit),
+                    icon: const Icon(Icons.analytics_outlined, size: 18),
+                    label: const Text('RCPA'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: () => _recordJointVisit(visitId),
+                    icon: const Icon(Icons.groups_outlined, size: 18),
+                    label: const Text('Joint'),
                   ),
                   OutlinedButton.icon(
                     onPressed: () => _logDetailing(visitId),

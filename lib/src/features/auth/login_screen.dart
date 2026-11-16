@@ -14,6 +14,8 @@ class LoginScreen extends ConsumerStatefulWidget {
 class _LoginScreenState extends ConsumerState<LoginScreen> {
   static const _demoSalesmanPhone = '9000000005';
   static const _demoSalesmanPassword = 'Demo@1234';
+  static const _demoMoonfordMrPhone = '9000000029';
+  static const _demoMoonfordMrPassword = 'Demo@1234';
 
   final _identifier = TextEditingController();
   final _password = TextEditingController();
@@ -93,11 +95,22 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       onPressed: state.isLoading
                           ? null
                           : () {
+                              _identifier.text = _demoMoonfordMrPhone;
+                              _password.text = _demoMoonfordMrPassword;
+                            },
+                      icon: const Icon(Icons.medication_outlined),
+                      label: const Text('Fill Moonford Pharma MR (Amit - 9000000029)'),
+                    ),
+                    const SizedBox(height: 8),
+                    OutlinedButton.icon(
+                      onPressed: state.isLoading
+                          ? null
+                          : () {
                               _identifier.text = _demoSalesmanPhone;
                               _password.text = _demoSalesmanPassword;
                             },
                       icon: const Icon(Icons.content_paste_go_outlined),
-                      label: const Text('Fill Demo Field Sales credentials'),
+                      label: const Text('Fill FMCG Salesman (9000000005)'),
                     ),
                     const SizedBox(height: 12),
                   ],

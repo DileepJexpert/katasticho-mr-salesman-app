@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../auth/auth_controller.dart';
-import '../shared/field_widgets.dart';
 import 'order_builder_screen.dart';
 
 class OrdersScreen extends ConsumerStatefulWidget {
@@ -12,18 +12,28 @@ class OrdersScreen extends ConsumerStatefulWidget {
   ConsumerState<OrdersScreen> createState() => _OrdersScreenState();
 }
 
-class _OrdersScreenState extends ConsumerState<OrdersScreen> {
+class _OrdersScreenState extends ConsumerState<OrdersScreen>
+    with SingleTickerProviderStateMixin {
+  late TabController _tabController;
   bool _loading = true;
   List<Map<String, dynamic>> _visits = [];
+  List<Map<String, dynamic>> _pobs = [];
   String? _error;
 
   @override
   void initState() {
     super.initState();
-    _loadVisits();
+    _tabController = TabController(length: 2, vsync: this);
+    _loadAll();
   }
 
-  Future<void> _loadVisits() async {
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadAll() async {
     setState(() {
       _loading = true;
       _error = null;
@@ -37,26 +47,37 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
 
     try {
       final api = ref.read(apiClientProvider);
-      final executions = await api.getMyTodayExecutions();
 
+      final results = await Future.wait([
+        api.getMyTodayExecutions(),
+        api.getPharmaPobs(),
+      ]);
+
+      final executions = results[0];
+      final pobs = results[1].whereType<Map<String, dynamic>>().toList();
+
+      List<Map<String, dynamic>> visits = [];
       if (executions.isNotEmpty) {
         final exec = executions[0] as Map<String, dynamic>;
         final execId = exec['id']?.toString();
         if (execId != null) {
           final raw = await api.getVisits(execId);
-          if (mounted) {
-            setState(() {
-              _visits = raw
-                  .whereType<Map<String, dynamic>>()
-                  .where(
-                    (v) =>
-                        v['status'] == 'IN_PROGRESS' ||
-                        v['status'] == 'COMPLETED',
-                  )
-                  .toList();
-            });
-          }
+          visits = raw
+              .whereType<Map<String, dynamic>>()
+              .where(
+                (v) =>
+                    v['status'] == 'IN_PROGRESS' ||
+                    v['status'] == 'COMPLETED',
+              )
+              .toList();
         }
+      }
+
+      if (mounted) {
+        setState(() {
+          _visits = visits;
+          _pobs = pobs;
+        });
       }
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
@@ -65,8 +86,40 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
     }
   }
 
-  /// Record Order entry point: bottom sheet with two paths —
-  /// build a real line-item Sales Order, or the quick-amount dialog.
+  Future<void> _showDirectOrderPicker() async {
+    final api = ref.read(apiClientProvider);
+    List<Map<String, dynamic>> contacts = [];
+    try {
+      final raw = await api.getContacts();
+      contacts = raw.whereType<Map<String, dynamic>>().toList();
+    } catch (_) {}
+
+    if (!mounted) return;
+
+    final picked = await showModalBottomSheet<Map<String, dynamic>>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => _SelectPartySheet(contacts: contacts),
+    );
+
+    if (picked != null && mounted) {
+      final placed = await Navigator.of(context).push<bool>(
+        MaterialPageRoute(
+          builder: (_) => OrderBuilderScreen(
+            visitId: '',
+            contactId: picked['id']?.toString() ?? '',
+            contactName: picked['displayName']?.toString() ?? 'Party',
+            medicalCategory: picked['medicalCategory']?.toString(),
+          ),
+        ),
+      );
+      if (placed == true && mounted) {
+        await _loadAll();
+      }
+    }
+  }
+
   Future<void> _showOrderOptions(Map<String, dynamic> visit) async {
     final visitId = visit['id']?.toString() ?? '';
     final contactId = visit['contactId']?.toString() ?? '';
@@ -84,9 +137,9 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
             const SizedBox(height: 8),
             ListTile(
               leading: const Icon(Icons.inventory_2_outlined),
-              title: const Text('Build order (items)'),
+              title: const Text('Build order (items / POB)'),
               subtitle: const Text(
-                'Browse catalog, build a cart, create a Sales Order',
+                'Browse catalog, select supplying stockist, build order',
               ),
               onTap: () => Navigator.pop(ctx, 'build'),
             ),
@@ -112,10 +165,11 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
             visitId: visitId,
             contactId: contactId,
             contactName: contactName,
+            medicalCategory: visit['medicalCategory']?.toString(),
           ),
         ),
       );
-      if (placed == true && mounted) await _loadVisits();
+      if (placed == true && mounted) await _loadAll();
     } else {
       await _recordOrder(visitId, contactName);
     }
@@ -164,7 +218,7 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
               }
               Navigator.pop(ctx, true);
             },
-            child: const Text('Record Order'),
+            child: const Text('Record'),
           ),
         ],
       ),
@@ -172,9 +226,7 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
     if (proceed != true || !mounted) return;
 
     try {
-      await ref
-          .read(apiClientProvider)
-          .recordOrder(
+      await ref.read(apiClientProvider).recordOrder(
             visitId,
             salesOrderId: soIdCtl.text.trim(),
             orderValue: double.tryParse(valueCtl.text.trim()) ?? 0,
@@ -187,7 +239,7 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
           ),
         );
       }
-      await _loadVisits();
+      await _loadAll();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(
@@ -197,123 +249,417 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
     }
   }
 
+  Future<void> _shareStockistAdvice(String stockistId) async {
+    try {
+      final api = ref.read(apiClientProvider);
+      final advice = await api.getStockistSupplyAdvice(stockistId);
+      final shareText = advice['shareableWhatsAppText']?.toString() ?? '';
+
+      if (shareText.isNotEmpty) {
+        final encoded = Uri.encodeComponent(shareText);
+        final uri = Uri.parse('https://wa.me/?text=$encoded');
+        if (await canLaunchUrl(uri)) {
+          await launchUrl(uri, mode: LaunchMode.externalApplication);
+        }
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('No advice text generated')),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to generate stockist advice: $e')),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final session = ref.watch(authControllerProvider).session;
 
-    if (_loading) {
-      return const Center(child: CircularProgressIndicator());
-    }
-
-    return RefreshIndicator(
-      onRefresh: _loadVisits,
-      child: PageScaffold(
-        title: 'Orders',
-        subtitle: 'Record orders against active or completed visits.',
-        children: [
-          if (_error != null) ...[
-            Card(
-              color: Colors.red.shade50,
-              child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: Text(
-                  _error!,
-                  style: TextStyle(color: Colors.red.shade700),
-                ),
-              ),
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Orders & POBs'),
+        bottom: TabBar(
+          controller: _tabController,
+          tabs: [
+            Tab(
+              icon: const Icon(Icons.route, size: 20),
+              text: 'Visit Orders (${_visits.length})',
             ),
-            const SizedBox(height: 12),
+            Tab(
+              icon: const Icon(Icons.medication, size: 20),
+              text: 'Pharma POBs (${_pobs.length})',
+            ),
           ],
-          if (session?.isDemo == true)
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: Row(
-                  children: [
-                    Icon(Icons.info_outline, color: theme.colorScheme.primary),
-                    const SizedBox(width: 10),
-                    const Expanded(
-                      child: Text(
-                        'Login with real credentials to record orders.',
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            )
-          else if (_visits.isEmpty)
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: Row(
-                  children: [
-                    Icon(Icons.info_outline, color: Colors.grey.shade400),
-                    const SizedBox(width: 10),
-                    const Expanded(
-                      child: Text(
-                        'Check in to a visit first. Orders can be recorded during or after a visit.',
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            )
-          else
-            ..._visits.map((visit) {
-              final name =
-                  visit['contactName']?.toString() ??
-                  visit['contactId']?.toString() ??
-                  'Customer';
-              final status = visit['status']?.toString() ?? '';
-              final existingOrder = (visit['orderValue'] as num?)?.toDouble();
-
-              return Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(14),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+        ),
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _showDirectOrderPicker,
+        backgroundColor: const Color(0xFF059669),
+        icon: const Icon(Icons.add, color: Colors.white),
+        label: const Text(
+          'Book Order / POB',
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+        ),
+      ),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : TabBarView(
+              controller: _tabController,
+              children: [
+                // TAB 1: Route Visit Orders
+                RefreshIndicator(
+                  onRefresh: _loadAll,
+                  child: ListView(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 80),
                     children: [
-                      Row(
-                        children: [
-                          Expanded(
+                      if (_error != null) ...[
+                        Card(
+                          color: Colors.red.shade50,
+                          child: Padding(
+                            padding: const EdgeInsets.all(14),
                             child: Text(
-                              name,
-                              style: theme.textTheme.titleMedium?.copyWith(
-                                fontWeight: FontWeight.w700,
-                              ),
+                              _error!,
+                              style: TextStyle(color: Colors.red.shade700),
                             ),
                           ),
-                          Text(
-                            status.replaceAll('_', ' '),
-                            style: theme.textTheme.bodySmall,
-                          ),
-                        ],
-                      ),
-                      if (existingOrder != null && existingOrder > 0) ...[
-                        const SizedBox(height: 6),
-                        Text(
-                          'Current order: ₹${existingOrder.toStringAsFixed(0)}',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            fontWeight: FontWeight.w600,
-                          ),
                         ),
+                        const SizedBox(height: 12),
                       ],
-                      const SizedBox(height: 10),
-                      FilledButton.icon(
-                        onPressed: () => _showOrderOptions(visit),
-                        icon: const Icon(Icons.add_shopping_cart, size: 18),
-                        label: Text(
-                          existingOrder != null && existingOrder > 0
-                              ? 'Update Order'
-                              : 'Record Order',
-                        ),
-                      ),
+                      if (session?.isDemo == true)
+                        Card(
+                          child: Padding(
+                            padding: const EdgeInsets.all(14),
+                            child: Row(
+                              children: [
+                                Icon(Icons.info_outline, color: theme.colorScheme.primary),
+                                const SizedBox(width: 10),
+                                const Expanded(
+                                  child: Text('Login with real credentials to record orders.'),
+                                ),
+                              ],
+                            ),
+                          ),
+                        )
+                      else if (_visits.isEmpty)
+                        Card(
+                          child: Padding(
+                            padding: const EdgeInsets.all(14),
+                            child: Row(
+                              children: [
+                                Icon(Icons.info_outline, color: Colors.grey.shade400),
+                                const SizedBox(width: 10),
+                                const Expanded(
+                                  child: Text(
+                                    'No active route visits today. Tap "Book Order / POB" to record an off-beat order directly.',
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        )
+                      else
+                        ..._visits.map((visit) {
+                          final name =
+                              visit['contactName']?.toString() ??
+                              visit['contactId']?.toString() ??
+                              'Customer';
+                          final status = visit['status']?.toString() ?? '';
+                          final existingOrder = (visit['orderValue'] as num?)?.toDouble();
+
+                          return Card(
+                            margin: const EdgeInsets.only(bottom: 10),
+                            child: Padding(
+                              padding: const EdgeInsets.all(14),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          name,
+                                          style: theme.textTheme.titleMedium?.copyWith(
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                        ),
+                                      ),
+                                      Chip(
+                                        label: Text(
+                                          status.replaceAll('_', ' '),
+                                          style: const TextStyle(fontSize: 11),
+                                        ),
+                                        side: BorderSide.none,
+                                        visualDensity: VisualDensity.compact,
+                                      ),
+                                    ],
+                                  ),
+                                  if (existingOrder != null && existingOrder > 0) ...[
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      'Recorded Order: ₹${existingOrder.toStringAsFixed(0)}',
+                                      style: theme.textTheme.bodyMedium?.copyWith(
+                                        fontWeight: FontWeight.w700,
+                                        color: Colors.green.shade800,
+                                      ),
+                                    ),
+                                  ],
+                                  const SizedBox(height: 10),
+                                  FilledButton.icon(
+                                    onPressed: () => _showOrderOptions(visit),
+                                    icon: const Icon(Icons.add_shopping_cart, size: 18),
+                                    label: Text(
+                                      existingOrder != null && existingOrder > 0
+                                          ? 'Update Order'
+                                          : 'Record Order / POB',
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        }),
                     ],
                   ),
                 ),
-              );
-            }),
+
+                // TAB 2: Pharma POBs (Personal Order Bookings)
+                RefreshIndicator(
+                  onRefresh: _loadAll,
+                  child: ListView(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 80),
+                    children: [
+                      if (_pobs.isEmpty)
+                        Card(
+                          child: Padding(
+                            padding: const EdgeInsets.all(16),
+                            child: Row(
+                              children: [
+                                Icon(Icons.medication_outlined, color: Colors.grey.shade400),
+                                const SizedBox(width: 12),
+                                const Expanded(
+                                  child: Text(
+                                    'No POB orders recorded yet. Book orders at chemist counters tagged to preferred stockists.',
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        )
+                      else
+                        ..._pobs.map((pob) {
+                          final orderNum = pob['orderNumber']?.toString() ?? 'POB';
+                          final chemistName = pob['chemistName']?.toString() ?? 'Chemist';
+                          final stockistName = pob['stockistName']?.toString() ?? 'Stockist';
+                          final stockistId = pob['stockistId']?.toString();
+                          final totalAmount = (pob['totalAmount'] as num?)?.toDouble() ?? 0.0;
+                          final status = pob['status']?.toString() ?? 'BOOKED';
+                          final date = pob['orderDate']?.toString() ?? '';
+
+                          Color statusColor = Colors.orange;
+                          if (status == 'SUPPLIED') statusColor = Colors.green;
+                          if (status == 'BOOKED') statusColor = const Color(0xFF2563EB);
+
+                          return Card(
+                            margin: const EdgeInsets.only(bottom: 10),
+                            child: Padding(
+                              padding: const EdgeInsets.all(14),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Text(
+                                        orderNum,
+                                        style: theme.textTheme.titleMedium?.copyWith(
+                                          fontWeight: FontWeight.w800,
+                                        ),
+                                      ),
+                                      const Spacer(),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                        decoration: BoxDecoration(
+                                          color: statusColor.withValues(alpha: 0.1),
+                                          borderRadius: BorderRadius.circular(6),
+                                        ),
+                                        child: Text(
+                                          status,
+                                          style: TextStyle(
+                                            color: statusColor,
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 11,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    'Chemist: $chemistName',
+                                    style: const TextStyle(fontWeight: FontWeight.w600),
+                                  ),
+                                  Text(
+                                    'Supplying Stockist: $stockistName',
+                                    style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey.shade700),
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      Text(
+                                        '₹${totalAmount.toStringAsFixed(0)}',
+                                        style: theme.textTheme.titleMedium?.copyWith(
+                                          fontWeight: FontWeight.w800,
+                                          color: const Color(0xFF059669),
+                                        ),
+                                      ),
+                                      Text(date, style: theme.textTheme.bodySmall),
+                                    ],
+                                  ),
+                                  if (stockistId != null && stockistId.isNotEmpty) ...[
+                                    const SizedBox(height: 8),
+                                    const Divider(height: 1),
+                                    const SizedBox(height: 6),
+                                    Align(
+                                      alignment: Alignment.centerRight,
+                                      child: OutlinedButton.icon(
+                                        style: OutlinedButton.styleFrom(
+                                          foregroundColor: const Color(0xFF059669),
+                                          side: const BorderSide(color: Color(0xFF059669)),
+                                          visualDensity: VisualDensity.compact,
+                                        ),
+                                        onPressed: () => _shareStockistAdvice(stockistId),
+                                        icon: const Icon(Icons.share, size: 14),
+                                        label: const Text('WhatsApp Stockist Advice'),
+                                      ),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ),
+                          );
+                        }),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+    );
+  }
+}
+
+class _SelectPartySheet extends StatefulWidget {
+  const _SelectPartySheet({required this.contacts});
+
+  final List<Map<String, dynamic>> contacts;
+
+  @override
+  State<_SelectPartySheet> createState() => _SelectPartySheetState();
+}
+
+class _SelectPartySheetState extends State<_SelectPartySheet> {
+  final _searchCtl = TextEditingController();
+  String _filter = '';
+
+  @override
+  void dispose() {
+    _searchCtl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final filtered = widget.contacts.where((c) {
+      if (_filter.isEmpty) return true;
+      final name = c['displayName']?.toString().toLowerCase() ?? '';
+      final phone = c['phone']?.toString().toLowerCase() ?? '';
+      final city = c['billingCity']?.toString().toLowerCase() ?? '';
+      final q = _filter.toLowerCase();
+      return name.contains(q) || phone.contains(q) || city.contains(q);
+    }).toList();
+
+    return Container(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.of(context).size.height * 0.8,
+      ),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 10),
+            child: Row(
+              children: [
+                const Icon(Icons.storefront, color: Color(0xFF059669)),
+                const SizedBox(width: 10),
+                const Text(
+                  'Select Party for Order / POB',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                ),
+                const Spacer(),
+                IconButton(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close),
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            child: TextField(
+              controller: _searchCtl,
+              onChanged: (v) => setState(() => _filter = v.trim()),
+              decoration: InputDecoration(
+                hintText: 'Search chemist, retailer, or party name…',
+                prefixIcon: const Icon(Icons.search),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                isDense: true,
+              ),
+            ),
+          ),
+          Expanded(
+            child: ListView.separated(
+              padding: const EdgeInsets.all(16),
+              itemCount: filtered.length,
+              separatorBuilder: (_, __) => const Divider(height: 1),
+              itemBuilder: (ctx, i) {
+                final c = filtered[i];
+                final name = c['displayName']?.toString() ?? 'Party';
+                final cat = c['medicalCategory']?.toString().toUpperCase();
+                final city = c['billingCity']?.toString() ?? '';
+                final isChemist = cat == 'CHEMIST' || cat == 'RETAILER';
+
+                return ListTile(
+                  leading: CircleAvatar(
+                    backgroundColor: isChemist
+                        ? const Color(0xFF059669).withValues(alpha: 0.1)
+                        : Colors.blue.withValues(alpha: 0.1),
+                    child: Icon(
+                      isChemist ? Icons.local_pharmacy : Icons.business,
+                      color: isChemist ? const Color(0xFF059669) : Colors.blue,
+                      size: 20,
+                    ),
+                  ),
+                  title: Text(name, style: const TextStyle(fontWeight: FontWeight.bold)),
+                  subtitle: Text([
+                    if (cat != null) cat,
+                    if (city.isNotEmpty) city,
+                  ].join(' · ')),
+                  onTap: () => Navigator.pop(ctx, c),
+                );
+              },
+            ),
+          ),
         ],
       ),
     );

@@ -705,6 +705,135 @@ class FieldApiClient {
     return _unwrapList(response.data);
   }
 
+  Future<Map<String, dynamic>> markJointVisit(
+    String visitId, {
+    required String jointWith,
+    String? managerDesignation,
+    String? notes,
+  }) async {
+    final response = await _dio.post<Map<String, dynamic>>(
+      '/api/v1/mr/visits/$visitId/joint-visit',
+      data: {
+        'jointWith': jointWith,
+        if (managerDesignation != null && managerDesignation.isNotEmpty)
+          'managerDesignation': managerDesignation,
+        if (notes != null && notes.isNotEmpty) 'notes': notes,
+      },
+      options: _authOptions(),
+    );
+    return _unwrap(response.data);
+  }
+
+  // ── RCPA (Retail Chemist Prescription Audit) ──────────────────
+
+  Future<List<dynamic>> getMyRcpaAudits() async {
+    final response = await _dio.get<Map<String, dynamic>>(
+      '/api/v1/mr/rcpa/me',
+      options: _authOptions(),
+    );
+    return _unwrapList(response.data);
+  }
+
+  Future<List<dynamic>> getEnrichedRcpaAudits() async {
+    final response = await _dio.get<Map<String, dynamic>>(
+      '/api/v1/mr/rcpa/enriched',
+      options: _authOptions(),
+    );
+    return _unwrapList(response.data);
+  }
+
+  Future<Map<String, dynamic>> recordRcpa({
+    String? auditId,
+    required String chemistContactId,
+    String? doctorContactId,
+    required String auditDate,
+    String? fieldVisitId,
+    String? remarks,
+    required List<Map<String, dynamic>> lines,
+  }) async {
+    final response = await _dio.post<Map<String, dynamic>>(
+      '/api/v1/mr/rcpa',
+      data: {
+        if (auditId != null) 'auditId': auditId,
+        'chemistContactId': chemistContactId,
+        if (doctorContactId != null && doctorContactId.isNotEmpty)
+          'doctorContactId': doctorContactId,
+        'auditDate': auditDate,
+        if (fieldVisitId != null && fieldVisitId.isNotEmpty)
+          'fieldVisitId': fieldVisitId,
+        if (remarks != null && remarks.isNotEmpty) 'remarks': remarks,
+        'lines': lines,
+      },
+      options: _authOptions(),
+    );
+    return _unwrap(response.data);
+  }
+
+  // ── Pharma POB (Personal Order Booking) ───────────────────────
+
+  Future<Map<String, dynamic>> createPharmaPob({
+    required String chemistId,
+    required String stockistId,
+    required String orderDate,
+    String? urgency,
+    String? expectedSupplyDate,
+    String? fieldVisitId,
+    String? notes,
+    required List<Map<String, dynamic>> lines,
+  }) async {
+    final response = await _dio.post<Map<String, dynamic>>(
+      '/api/v1/pharma/pob',
+      data: {
+        'chemistId': chemistId,
+        'stockistId': stockistId,
+        'orderDate': orderDate,
+        if (urgency != null) 'urgency': urgency,
+        if (expectedSupplyDate != null) 'expectedSupplyDate': expectedSupplyDate,
+        if (fieldVisitId != null) 'fieldVisitId': fieldVisitId,
+        if (notes != null && notes.isNotEmpty) 'notes': notes,
+        'lines': lines,
+      },
+      options: _authOptions(),
+    );
+    return _unwrap(response.data);
+  }
+
+  Future<List<dynamic>> getPharmaPobs({
+    String? stockistId,
+    String? status,
+  }) async {
+    final response = await _dio.get<Map<String, dynamic>>(
+      '/api/v1/pharma/pob',
+      queryParameters: {
+        if (stockistId != null) 'stockistId': stockistId,
+        if (status != null) 'status': status,
+      },
+      options: _authOptions(),
+    );
+    return _unwrapList(response.data);
+  }
+
+  Future<Map<String, dynamic>> getStockistSupplyAdvice(String stockistId) async {
+    final response = await _dio.post<Map<String, dynamic>>(
+      '/api/v1/pharma/pob/stockists/$stockistId/advice',
+      options: _authOptions(),
+    );
+    return _unwrap(response.data);
+  }
+
+  // ── Secondary Sales ───────────────────────────────────────────
+
+  Future<Map<String, dynamic>> getSecondarySalesPrepopulation(
+    String stockistContactId,
+  ) async {
+    final response = await _dio.get<Map<String, dynamic>>(
+      '/api/v1/field-sales/secondary-sales/statements/prepopulate',
+      queryParameters: {'stockistContactId': stockistContactId},
+      options: _authOptions(),
+    );
+    return _unwrap(response.data);
+  }
+
   // â”€â”€ Attendance + leave â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   Future<Map<String, dynamic>?> getAttendanceToday() async {

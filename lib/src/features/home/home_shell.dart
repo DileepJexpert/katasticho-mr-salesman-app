@@ -8,6 +8,7 @@ import '../dayclose/day_close_screen.dart';
 import '../expenses/expenses_screen.dart';
 import '../field/field_models.dart';
 import '../mr/dcr_screen.dart';
+import '../mr/rcpa_screen.dart';
 import '../mr/tour_plan_screen.dart';
 import '../orders/orders_screen.dart';
 import '../parties/parties_screen.dart';
@@ -54,6 +55,17 @@ class _HomeShellState extends ConsumerState<HomeShell> {
           ],
         ),
         actions: [
+          IconButton(
+            tooltip: 'Prescription Audits (RCPA)',
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const RcpaScreen(),
+                ),
+              );
+            },
+            icon: const Icon(Icons.analytics_outlined),
+          ),
           IconButton(
             tooltip: isPharma ? 'Tour Plan' : 'Route Plan',
             onPressed: () {
