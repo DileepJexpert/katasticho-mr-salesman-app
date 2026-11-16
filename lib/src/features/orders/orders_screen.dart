@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../core/models/session.dart';
 import '../auth/auth_controller.dart';
 import 'order_builder_screen.dart';
 
@@ -47,29 +48,38 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen>
 
     try {
       final api = ref.read(apiClientProvider);
-
-      final results = await Future.wait([
-        api.getMyTodayExecutions(),
-        api.getPharmaPobs(),
-      ]);
-
-      final executions = results[0];
-      final pobs = results[1].whereType<Map<String, dynamic>>().toList();
+      final isPharma = session.isPharma;
 
       List<Map<String, dynamic>> visits = [];
-      if (executions.isNotEmpty) {
-        final exec = executions[0] as Map<String, dynamic>;
-        final execId = exec['id']?.toString();
-        if (execId != null) {
-          final raw = await api.getVisits(execId);
-          visits = raw
-              .whereType<Map<String, dynamic>>()
-              .where(
-                (v) =>
-                    v['status'] == 'IN_PROGRESS' ||
-                    v['status'] == 'COMPLETED',
-              )
-              .toList();
+      try {
+        final executions = await api.getMyTodayExecutions();
+        if (executions.isNotEmpty) {
+          final exec = executions[0] as Map<String, dynamic>;
+          final execId = exec['id']?.toString();
+          if (execId != null) {
+            final raw = await api.getVisits(execId);
+            visits = raw
+                .whereType<Map<String, dynamic>>()
+                .where(
+                  (v) =>
+                      v['status'] == 'IN_PROGRESS' ||
+                      v['status'] == 'COMPLETED',
+                )
+                .toList();
+          }
+        }
+      } catch (e) {
+        // visits load failed
+        _error = e.toString();
+      }
+
+      List<Map<String, dynamic>> pobs = [];
+      if (isPharma) {
+        try {
+          final rawPobs = await api.getPharmaPobs();
+          pobs = rawPobs.whereType<Map<String, dynamic>>().toList();
+        } catch (_) {
+          // Gracefully ignore if not entitled or 403
         }
       }
 
@@ -281,7 +291,39 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen>
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final session = ref.watch(authControllerProvider).session;
+    final isPharma = session?.isPharma == true;
 
+    // Non-Pharma FMCG/Distributor Salesman view (Single clean Orders view)
+    if (!isPharma) {
+      return Scaffold(
+        appBar: AppBar(
+          title: const Text('Orders'),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.refresh),
+              onPressed: _loadAll,
+            ),
+          ],
+        ),
+        floatingActionButton: FloatingActionButton.extended(
+          onPressed: _showDirectOrderPicker,
+          backgroundColor: const Color(0xFF2563EB),
+          icon: const Icon(Icons.add, color: Colors.white),
+          label: const Text(
+            'Take Order',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+          ),
+        ),
+        body: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : RefreshIndicator(
+                onRefresh: _loadAll,
+                child: _buildVisitOrdersView(theme, session),
+              ),
+      );
+    }
+
+    // Pharma MR View (Tabbed view: Visit Orders & Pharma POBs)
     return Scaffold(
       appBar: AppBar(
         title: const Text('Orders & POBs'),
@@ -313,243 +355,254 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen>
           : TabBarView(
               controller: _tabController,
               children: [
-                // TAB 1: Route Visit Orders
                 RefreshIndicator(
                   onRefresh: _loadAll,
-                  child: ListView(
-                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 80),
-                    children: [
-                      if (_error != null) ...[
-                        Card(
-                          color: Colors.red.shade50,
-                          child: Padding(
-                            padding: const EdgeInsets.all(14),
-                            child: Text(
-                              _error!,
-                              style: TextStyle(color: Colors.red.shade700),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                      ],
-                      if (session?.isDemo == true)
-                        Card(
-                          child: Padding(
-                            padding: const EdgeInsets.all(14),
-                            child: Row(
-                              children: [
-                                Icon(Icons.info_outline, color: theme.colorScheme.primary),
-                                const SizedBox(width: 10),
-                                const Expanded(
-                                  child: Text('Login with real credentials to record orders.'),
-                                ),
-                              ],
-                            ),
-                          ),
-                        )
-                      else if (_visits.isEmpty)
-                        Card(
-                          child: Padding(
-                            padding: const EdgeInsets.all(14),
-                            child: Row(
-                              children: [
-                                Icon(Icons.info_outline, color: Colors.grey.shade400),
-                                const SizedBox(width: 10),
-                                const Expanded(
-                                  child: Text(
-                                    'No active route visits today. Tap "Book Order / POB" to record an off-beat order directly.',
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        )
-                      else
-                        ..._visits.map((visit) {
-                          final name =
-                              visit['contactName']?.toString() ??
-                              visit['contactId']?.toString() ??
-                              'Customer';
-                          final status = visit['status']?.toString() ?? '';
-                          final existingOrder = (visit['orderValue'] as num?)?.toDouble();
-
-                          return Card(
-                            margin: const EdgeInsets.only(bottom: 10),
-                            child: Padding(
-                              padding: const EdgeInsets.all(14),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    children: [
-                                      Expanded(
-                                        child: Text(
-                                          name,
-                                          style: theme.textTheme.titleMedium?.copyWith(
-                                            fontWeight: FontWeight.w700,
-                                          ),
-                                        ),
-                                      ),
-                                      Chip(
-                                        label: Text(
-                                          status.replaceAll('_', ' '),
-                                          style: const TextStyle(fontSize: 11),
-                                        ),
-                                        side: BorderSide.none,
-                                        visualDensity: VisualDensity.compact,
-                                      ),
-                                    ],
-                                  ),
-                                  if (existingOrder != null && existingOrder > 0) ...[
-                                    const SizedBox(height: 6),
-                                    Text(
-                                      'Recorded Order: ₹${existingOrder.toStringAsFixed(0)}',
-                                      style: theme.textTheme.bodyMedium?.copyWith(
-                                        fontWeight: FontWeight.w700,
-                                        color: Colors.green.shade800,
-                                      ),
-                                    ),
-                                  ],
-                                  const SizedBox(height: 10),
-                                  FilledButton.icon(
-                                    onPressed: () => _showOrderOptions(visit),
-                                    icon: const Icon(Icons.add_shopping_cart, size: 18),
-                                    label: Text(
-                                      existingOrder != null && existingOrder > 0
-                                          ? 'Update Order'
-                                          : 'Record Order / POB',
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          );
-                        }),
-                    ],
-                  ),
+                  child: _buildVisitOrdersView(theme, session),
                 ),
-
-                // TAB 2: Pharma POBs (Personal Order Bookings)
                 RefreshIndicator(
                   onRefresh: _loadAll,
-                  child: ListView(
-                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 80),
-                    children: [
-                      if (_pobs.isEmpty)
-                        Card(
-                          child: Padding(
-                            padding: const EdgeInsets.all(16),
-                            child: Row(
-                              children: [
-                                Icon(Icons.medication_outlined, color: Colors.grey.shade400),
-                                const SizedBox(width: 12),
-                                const Expanded(
-                                  child: Text(
-                                    'No POB orders recorded yet. Book orders at chemist counters tagged to preferred stockists.',
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        )
-                      else
-                        ..._pobs.map((pob) {
-                          final orderNum = pob['orderNumber']?.toString() ?? 'POB';
-                          final chemistName = pob['chemistName']?.toString() ?? 'Chemist';
-                          final stockistName = pob['stockistName']?.toString() ?? 'Stockist';
-                          final stockistId = pob['stockistId']?.toString();
-                          final totalAmount = (pob['totalAmount'] as num?)?.toDouble() ?? 0.0;
-                          final status = pob['status']?.toString() ?? 'BOOKED';
-                          final date = pob['orderDate']?.toString() ?? '';
-
-                          Color statusColor = Colors.orange;
-                          if (status == 'SUPPLIED') statusColor = Colors.green;
-                          if (status == 'BOOKED') statusColor = const Color(0xFF2563EB);
-
-                          return Card(
-                            margin: const EdgeInsets.only(bottom: 10),
-                            child: Padding(
-                              padding: const EdgeInsets.all(14),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    children: [
-                                      Text(
-                                        orderNum,
-                                        style: theme.textTheme.titleMedium?.copyWith(
-                                          fontWeight: FontWeight.w800,
-                                        ),
-                                      ),
-                                      const Spacer(),
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                                        decoration: BoxDecoration(
-                                          color: statusColor.withValues(alpha: 0.1),
-                                          borderRadius: BorderRadius.circular(6),
-                                        ),
-                                        child: Text(
-                                          status,
-                                          style: TextStyle(
-                                            color: statusColor,
-                                            fontWeight: FontWeight.bold,
-                                            fontSize: 11,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 6),
-                                  Text(
-                                    'Chemist: $chemistName',
-                                    style: const TextStyle(fontWeight: FontWeight.w600),
-                                  ),
-                                  Text(
-                                    'Supplying Stockist: $stockistName',
-                                    style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey.shade700),
-                                  ),
-                                  const SizedBox(height: 6),
-                                  Row(
-                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      Text(
-                                        '₹${totalAmount.toStringAsFixed(0)}',
-                                        style: theme.textTheme.titleMedium?.copyWith(
-                                          fontWeight: FontWeight.w800,
-                                          color: const Color(0xFF059669),
-                                        ),
-                                      ),
-                                      Text(date, style: theme.textTheme.bodySmall),
-                                    ],
-                                  ),
-                                  if (stockistId != null && stockistId.isNotEmpty) ...[
-                                    const SizedBox(height: 8),
-                                    const Divider(height: 1),
-                                    const SizedBox(height: 6),
-                                    Align(
-                                      alignment: Alignment.centerRight,
-                                      child: OutlinedButton.icon(
-                                        style: OutlinedButton.styleFrom(
-                                          foregroundColor: const Color(0xFF059669),
-                                          side: const BorderSide(color: Color(0xFF059669)),
-                                          visualDensity: VisualDensity.compact,
-                                        ),
-                                        onPressed: () => _shareStockistAdvice(stockistId),
-                                        icon: const Icon(Icons.share, size: 14),
-                                        label: const Text('WhatsApp Stockist Advice'),
-                                      ),
-                                    ),
-                                  ],
-                                ],
-                              ),
-                            ),
-                          );
-                        }),
-                    ],
-                  ),
+                  child: _buildPobsView(theme),
                 ),
               ],
             ),
+    );
+  }
+
+  Widget _buildVisitOrdersView(ThemeData theme, FieldSession? session) {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 80),
+      children: [
+        if (_error != null) ...[
+          Card(
+            color: Colors.red.shade50,
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Text(
+                _error!,
+                style: TextStyle(color: Colors.red.shade700),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
+        if (session?.isDemo == true)
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Row(
+                children: [
+                  Icon(Icons.info_outline, color: theme.colorScheme.primary),
+                  const SizedBox(width: 10),
+                  const Expanded(
+                    child: Text('Login with real credentials to record orders.'),
+                  ),
+                ],
+              ),
+            ),
+          )
+        else if (_visits.isEmpty)
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Row(
+                children: [
+                  Icon(Icons.info_outline, color: Colors.grey.shade400),
+                  const SizedBox(width: 10),
+                  const Expanded(
+                    child: Text(
+                      'No active route visits today. Tap "Take Order" or "Book Order / POB" to record an off-beat order directly.',
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          )
+        else
+          ..._visits.map((visit) {
+            final name =
+                visit['contactName']?.toString() ??
+                visit['contactId']?.toString() ??
+                'Customer';
+            final status = visit['status']?.toString() ?? '';
+            final existingOrder = (visit['orderValue'] as num?)?.toDouble();
+
+            return Card(
+              margin: const EdgeInsets.only(bottom: 10),
+              child: Padding(
+                padding: const EdgeInsets.all(14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            name,
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                        Chip(
+                          label: Text(
+                            status.replaceAll('_', ' '),
+                            style: const TextStyle(fontSize: 11),
+                          ),
+                          side: BorderSide.none,
+                          visualDensity: VisualDensity.compact,
+                        ),
+                      ],
+                    ),
+                    if (existingOrder != null && existingOrder > 0) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        'Recorded Order: ₹${existingOrder.toStringAsFixed(0)}',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                          color: Colors.green.shade800,
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 10),
+                    FilledButton.icon(
+                      onPressed: () => _showOrderOptions(visit),
+                      icon: const Icon(Icons.add_shopping_cart, size: 18),
+                      label: Text(
+                        existingOrder != null && existingOrder > 0
+                            ? 'Update Order'
+                            : 'Record Order / POB',
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }),
+      ],
+    );
+  }
+
+  Widget _buildPobsView(ThemeData theme) {
+    if (_pobs.isEmpty) {
+      return ListView(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 80),
+        children: [
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  Icon(Icons.medication_outlined, color: Colors.grey.shade400),
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: Text(
+                      'No POB orders recorded yet. Book orders at chemist counters tagged to preferred stockists.',
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+
+    return ListView.builder(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 80),
+      itemCount: _pobs.length,
+      itemBuilder: (ctx, i) {
+        final pob = _pobs[i];
+        final orderNum = pob['orderNumber']?.toString() ?? 'POB';
+        final chemistName = pob['chemistName']?.toString() ?? 'Chemist';
+        final stockistName = pob['stockistName']?.toString() ?? 'Stockist';
+        final stockistId = pob['stockistId']?.toString();
+        final totalAmount = (pob['totalAmount'] as num?)?.toDouble() ?? 0.0;
+        final status = pob['status']?.toString() ?? 'BOOKED';
+        final date = pob['orderDate']?.toString() ?? '';
+
+        Color statusColor = Colors.orange;
+        if (status == 'SUPPLIED') statusColor = Colors.green;
+        if (status == 'BOOKED') statusColor = const Color(0xFF2563EB);
+
+        return Card(
+          margin: const EdgeInsets.only(bottom: 10),
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Text(
+                      orderNum,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const Spacer(),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: statusColor.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        status,
+                        style: TextStyle(
+                          color: statusColor,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 11,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Chemist: $chemistName',
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+                Text(
+                  'Supplying Stockist: $stockistName',
+                  style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey.shade700),
+                ),
+                const SizedBox(height: 6),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      '₹${totalAmount.toStringAsFixed(0)}',
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w800,
+                        color: const Color(0xFF059669),
+                      ),
+                    ),
+                    Text(date, style: theme.textTheme.bodySmall),
+                  ],
+                ),
+                if (stockistId != null && stockistId.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  const Divider(height: 1),
+                  const SizedBox(height: 6),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFF059669),
+                        side: const BorderSide(color: Color(0xFF059669)),
+                        visualDensity: VisualDensity.compact,
+                      ),
+                      onPressed: () => _shareStockistAdvice(stockistId),
+                      icon: const Icon(Icons.share, size: 14),
+                      label: const Text('WhatsApp Stockist Advice'),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }
@@ -601,7 +654,7 @@ class _SelectPartySheetState extends State<_SelectPartySheet> {
                 const Icon(Icons.storefront, color: Color(0xFF059669)),
                 const SizedBox(width: 10),
                 const Text(
-                  'Select Party for Order / POB',
+                  'Select Party for Order',
                   style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                 ),
                 const Spacer(),
@@ -618,7 +671,7 @@ class _SelectPartySheetState extends State<_SelectPartySheet> {
               controller: _searchCtl,
               onChanged: (v) => setState(() => _filter = v.trim()),
               decoration: InputDecoration(
-                hintText: 'Search chemist, retailer, or party name…',
+                hintText: 'Search customer, retailer, or party name…',
                 prefixIcon: const Icon(Icons.search),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),

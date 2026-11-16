@@ -74,12 +74,17 @@ class _PartiesScreenState extends ConsumerState<PartiesScreen> {
     return _contacts.where((raw) {
       final c = raw as Map<String, dynamic>;
       final cat = c['medicalCategory']?.toString().toUpperCase();
+      final type = c['contactType']?.toString().toUpperCase();
       if (_selectedCategory == 'DOCTOR') {
         return cat == 'DOCTOR';
       } else if (_selectedCategory == 'CHEMIST') {
         return cat == 'CHEMIST' || cat == 'RETAILER';
       } else if (_selectedCategory == 'STOCKIST') {
         return cat == 'STOCKIST' || cat == 'DISTRIBUTOR';
+      } else if (_selectedCategory == 'CUSTOMER') {
+        return type == 'CUSTOMER' || type == 'BOTH';
+      } else if (_selectedCategory == 'VENDOR') {
+        return type == 'VENDOR' || type == 'BOTH';
       } else {
         return cat == null || (cat != 'DOCTOR' && cat != 'CHEMIST' && cat != 'STOCKIST');
       }
@@ -91,9 +96,12 @@ class _PartiesScreenState extends ConsumerState<PartiesScreen> {
     return _contacts.where((raw) {
       final c = raw as Map<String, dynamic>;
       final cat = c['medicalCategory']?.toString().toUpperCase();
+      final type = c['contactType']?.toString().toUpperCase();
       if (catKey == 'DOCTOR') return cat == 'DOCTOR';
       if (catKey == 'CHEMIST') return cat == 'CHEMIST' || cat == 'RETAILER';
       if (catKey == 'STOCKIST') return cat == 'STOCKIST' || cat == 'DISTRIBUTOR';
+      if (catKey == 'CUSTOMER') return type == 'CUSTOMER' || type == 'BOTH';
+      if (catKey == 'VENDOR') return type == 'VENDOR' || type == 'BOTH';
       return cat == null || (cat != 'DOCTOR' && cat != 'CHEMIST' && cat != 'STOCKIST');
     }).length;
   }
@@ -101,6 +109,7 @@ class _PartiesScreenState extends ConsumerState<PartiesScreen> {
   @override
   Widget build(BuildContext context) {
     final session = ref.watch(authControllerProvider).session;
+    final isPharma = session?.isPharma == true;
     final theme = Theme.of(context);
 
     if (session?.isDemo == true) {
@@ -135,8 +144,10 @@ class _PartiesScreenState extends ConsumerState<PartiesScreen> {
     return RefreshIndicator(
       onRefresh: _load,
       child: PageScaffold(
-        title: 'Parties & Field Network',
-        subtitle: 'Doctors, retail chemists, stockists, and institutional parties.',
+        title: isPharma ? 'Parties & Medical Network' : 'Parties',
+        subtitle: isPharma
+            ? 'Doctors, retail chemists, stockists, and institutional parties.'
+            : 'Customers and vendors from your organisation.',
         children: [
           // Search box
           TextField(
@@ -165,19 +176,26 @@ class _PartiesScreenState extends ConsumerState<PartiesScreen> {
           ),
           const SizedBox(height: 10),
 
-          // Pharma & Category Segment Filter Tabs
+          // Category Segment Filter Tabs
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Row(
               children: [
                 _buildFilterChip('ALL', 'All', Icons.groups_outlined),
                 const SizedBox(width: 6),
-                _buildFilterChip('DOCTOR', 'Doctors', Icons.health_and_safety_outlined),
-                const SizedBox(width: 6),
-                _buildFilterChip('CHEMIST', 'Chemists', Icons.local_pharmacy_outlined),
-                const SizedBox(width: 6),
-                _buildFilterChip('STOCKIST', 'Stockists', Icons.warehouse_outlined),
-                const SizedBox(width: 6),
+                if (isPharma) ...[
+                  _buildFilterChip('DOCTOR', 'Doctors', Icons.health_and_safety_outlined),
+                  const SizedBox(width: 6),
+                  _buildFilterChip('CHEMIST', 'Chemists', Icons.local_pharmacy_outlined),
+                  const SizedBox(width: 6),
+                  _buildFilterChip('STOCKIST', 'Stockists', Icons.warehouse_outlined),
+                  const SizedBox(width: 6),
+                ] else ...[
+                  _buildFilterChip('CUSTOMER', 'Customers', Icons.storefront_outlined),
+                  const SizedBox(width: 6),
+                  _buildFilterChip('VENDOR', 'Vendors', Icons.local_shipping_outlined),
+                  const SizedBox(width: 6),
+                ],
                 _buildFilterChip('OTHER', 'General', Icons.business_outlined),
               ],
             ),

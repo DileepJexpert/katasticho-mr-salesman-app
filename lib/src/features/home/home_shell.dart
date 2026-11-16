@@ -55,17 +55,18 @@ class _HomeShellState extends ConsumerState<HomeShell> {
           ],
         ),
         actions: [
-          IconButton(
-            tooltip: 'Prescription Audits (RCPA)',
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => const RcpaScreen(),
-                ),
-              );
-            },
-            icon: const Icon(Icons.analytics_outlined),
-          ),
+          if (isPharma)
+            IconButton(
+              tooltip: 'Prescription Audits (RCPA)',
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const RcpaScreen(),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.analytics_outlined),
+            ),
           IconButton(
             tooltip: isPharma ? 'Tour Plan' : 'Route Plan',
             onPressed: () {
