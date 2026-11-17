@@ -24,6 +24,7 @@ class _VisitsScreenState extends ConsumerState<VisitsScreen> {
   bool _loading = true;
   Map<String, dynamic>? _activeExecution;
   List<Map<String, dynamic>> _visits = [];
+  List<Map<String, dynamic>> _assignments = [];
   String? _error;
   final _locationService = LocationService();
 
@@ -51,6 +52,7 @@ class _VisitsScreenState extends ConsumerState<VisitsScreen> {
 
       Map<String, dynamic>? active;
       List<Map<String, dynamic>> visits = [];
+      List<Map<String, dynamic>> assignments = [];
 
       if (executions.isNotEmpty) {
         active = executions[0] as Map<String, dynamic>;
@@ -59,12 +61,18 @@ class _VisitsScreenState extends ConsumerState<VisitsScreen> {
           final rawVisits = await api.getVisits(execId);
           visits = rawVisits.whereType<Map<String, dynamic>>().toList();
         }
+      } else {
+        try {
+          final raw = await api.getMyAssignments();
+          assignments = raw.whereType<Map<String, dynamic>>().toList();
+        } catch (_) {}
       }
 
       if (mounted) {
         setState(() {
           _activeExecution = active;
           _visits = visits;
+          _assignments = assignments;
         });
         _syncPingTracker(active);
       }
@@ -111,6 +119,35 @@ class _VisitsScreenState extends ConsumerState<VisitsScreen> {
       await _loadData();
     } catch (e) {
       _showError('Failed to complete route: $e');
+    }
+  }
+
+  Future<void> _startNewAssignedRoute(Map<String, dynamic> assignment) async {
+    final routeId = assignment['routeId']?.toString();
+    final session = ref.read(authControllerProvider).session;
+    final userId = session?.userId;
+    if (routeId == null || userId == null) return;
+
+    setState(() => _loading = true);
+    final api = ref.read(apiClientProvider);
+    try {
+      final todayStr = DateTime.now().toIso8601String().split('T')[0];
+      final exec = await api.startExecution(
+        routeId: routeId,
+        salespersonId: userId,
+        executionDate: todayStr,
+      );
+      final execId = exec['id']?.toString();
+      if (execId != null) {
+        try {
+          await api.startRoute(execId);
+        } catch (_) {}
+      }
+      _showSuccess('Today\'s field run started!');
+      await _loadData();
+    } catch (e) {
+      _showError('Failed to start beat run: $e');
+      setState(() => _loading = false);
     }
   }
 
@@ -901,21 +938,70 @@ class _VisitsScreenState extends ConsumerState<VisitsScreen> {
             ),
             const SizedBox(height: 12),
           ] else ...[
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: Row(
-                  children: [
-                    Icon(Icons.event_busy, color: Colors.grey.shade400),
-                    const SizedBox(width: 10),
-                    const Expanded(
-                      child: Text('No route execution for today.'),
-                    ),
-                  ],
+            if (_assignments.isNotEmpty) ...[
+              Card(
+                color: const Color(0xFFECFDF5),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(Icons.route, color: Color(0xFF059669)),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              _assignments.first['routeName']?.toString() ??
+                                  'Assigned Daily Beat',
+                              style: theme.textTheme.titleMedium?.copyWith(
+                                fontWeight: FontWeight.bold,
+                                color: const Color(0xFF065F46),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Ready to begin today\'s customer calls. Tap below to start today\'s field beat and load your scheduled stops.',
+                        style: TextStyle(
+                          color: Colors.grey.shade700,
+                          fontSize: 13,
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      FilledButton.icon(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: const Color(0xFF059669),
+                        ),
+                        icon: const Icon(Icons.play_arrow, size: 18),
+                        label: const Text('Start Today\'s Beat Run'),
+                        onPressed: () =>
+                            _startNewAssignedRoute(_assignments.first),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: 12),
+              const SizedBox(height: 12),
+            ] else ...[
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Row(
+                    children: [
+                      Icon(Icons.event_busy, color: Colors.grey.shade400),
+                      const SizedBox(width: 10),
+                      const Expanded(
+                        child: Text('No route execution or route assignment for today.'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
           ],
 
           // Visits list
