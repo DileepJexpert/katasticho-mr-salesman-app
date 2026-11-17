@@ -54,17 +54,47 @@ class _VisitsScreenState extends ConsumerState<VisitsScreen> {
       List<Map<String, dynamic>> visits = [];
       List<Map<String, dynamic>> assignments = [];
 
+      Map<String, Map<String, dynamic>> contactMap = {};
+      try {
+        final rawContacts = await api.getContacts();
+        for (final c in rawContacts) {
+          if (c is Map) {
+            final cid = c['id']?.toString();
+            if (cid != null) {
+              contactMap[cid] = Map<String, dynamic>.from(c);
+            }
+          }
+        }
+      } catch (_) {}
+
       if (executions.isNotEmpty) {
         active = executions[0] as Map<String, dynamic>;
         final execId = active['id']?.toString();
         if (execId != null) {
           final rawVisits = await api.getVisits(execId);
-          visits = rawVisits.whereType<Map<String, dynamic>>().toList();
+          visits = rawVisits
+              .whereType<Map>()
+              .map((v) => Map<String, dynamic>.from(v))
+              .toList();
+
+          for (final v in visits) {
+            final cid = v['contactId']?.toString();
+            if (cid != null && contactMap.containsKey(cid)) {
+              final c = contactMap[cid]!;
+              v['contactName'] ??= c['displayName'];
+              v['contactPhone'] ??= c['phone'];
+              v['medicalCategory'] ??= c['medicalCategory'];
+              v['city'] ??= c['billingCity'];
+            }
+          }
         }
       } else {
         try {
           final raw = await api.getMyAssignments();
-          assignments = raw.whereType<Map<String, dynamic>>().toList();
+          assignments = raw
+              .whereType<Map>()
+              .map((a) => Map<String, dynamic>.from(a))
+              .toList();
         } catch (_) {}
       }
 
@@ -350,6 +380,7 @@ class _VisitsScreenState extends ConsumerState<VisitsScreen> {
             visitId: visitId,
             contactId: contactId,
             contactName: contactName,
+            medicalCategory: visit['medicalCategory']?.toString(),
           ),
         ),
       );
@@ -1034,6 +1065,9 @@ class _VisitsScreenState extends ConsumerState<VisitsScreen> {
     final orderValue = (visit['orderValue'] as num?)?.toDouble();
     final collectionAmount = (visit['collectionAmount'] as num?)?.toDouble();
     final skipReason = visit['skipReason']?.toString();
+    final category = visit['medicalCategory']?.toString().toUpperCase();
+    final city = visit['city']?.toString() ?? '';
+    final phone = visit['contactPhone']?.toString() ?? '';
 
     Color statusColor;
     String statusLabel;
@@ -1076,11 +1110,30 @@ class _VisitsScreenState extends ConsumerState<VisitsScreen> {
                   const SizedBox(width: 10),
                 ],
                 Expanded(
-                  child: Text(
-                    contactName,
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        contactName,
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      if (category != null || city.isNotEmpty || phone.isNotEmpty) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          [
+                            if (category != null) category,
+                            if (city.isNotEmpty) city,
+                            if (phone.isNotEmpty) phone,
+                          ].join(' · '),
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: Colors.grey.shade600,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
                 ),
                 Chip(

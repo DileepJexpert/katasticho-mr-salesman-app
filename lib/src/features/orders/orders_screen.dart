@@ -101,7 +101,10 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen>
     List<Map<String, dynamic>> contacts = [];
     try {
       final raw = await api.getContacts();
-      contacts = raw.whereType<Map<String, dynamic>>().toList();
+      contacts = raw
+          .whereType<Map>()
+          .map((e) => Map<String, dynamic>.from(e))
+          .toList();
     } catch (_) {}
 
     if (!mounted) return;
@@ -637,15 +640,14 @@ class _SelectPartySheetState extends State<_SelectPartySheet> {
       return name.contains(q) || phone.contains(q) || city.contains(q);
     }).toList();
 
-    return Container(
-      constraints: BoxConstraints(
-        maxHeight: MediaQuery.of(context).size.height * 0.8,
-      ),
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      child: Column(
+    return SizedBox(
+      height: MediaQuery.of(context).size.height * 0.75,
+      child: Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: Column(
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 16, 20, 10),
@@ -755,6 +757,6 @@ class _SelectPartySheetState extends State<_SelectPartySheet> {
           ),
         ],
       ),
-    );
+    ));
   }
 }
