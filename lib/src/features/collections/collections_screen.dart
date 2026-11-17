@@ -43,16 +43,44 @@ class _CollectionsScreenState extends ConsumerState<CollectionsScreen> {
         final execId = exec['id']?.toString();
         if (execId != null) {
           final raw = await api.getVisits(execId);
+
+          Map<String, Map<String, dynamic>> contactMap = {};
+          try {
+            final rawContacts = await api.getContacts();
+            for (final c in rawContacts) {
+              if (c is Map) {
+                final cid = c['id']?.toString();
+                if (cid != null) {
+                  contactMap[cid] = Map<String, dynamic>.from(c);
+                }
+              }
+            }
+          } catch (_) {}
+
+          final visits = raw
+              .whereType<Map>()
+              .map((v) => Map<String, dynamic>.from(v))
+              .where(
+                (v) =>
+                    v['status'] == 'IN_PROGRESS' ||
+                    v['status'] == 'COMPLETED',
+              )
+              .toList();
+
+          for (final v in visits) {
+            final cid = v['contactId']?.toString();
+            if (cid != null && contactMap.containsKey(cid)) {
+              final c = contactMap[cid]!;
+              v['contactName'] ??= c['displayName'];
+              v['contactPhone'] ??= c['phone'];
+              v['medicalCategory'] ??= c['medicalCategory'];
+              v['city'] ??= c['billingCity'];
+            }
+          }
+
           if (mounted) {
             setState(() {
-              _visits = raw
-                  .whereType<Map<String, dynamic>>()
-                  .where(
-                    (v) =>
-                        v['status'] == 'IN_PROGRESS' ||
-                        v['status'] == 'COMPLETED',
-                  )
-                  .toList();
+              _visits = visits;
             });
           }
         }
@@ -221,6 +249,16 @@ class _CollectionsScreenState extends ConsumerState<CollectionsScreen> {
                   'Customer';
               final status = visit['status']?.toString() ?? '';
               final existing = (visit['collectionAmount'] as num?)?.toDouble();
+              final category = visit['medicalCategory']?.toString();
+              final city = visit['city']?.toString();
+              final phone = visit['contactPhone']?.toString();
+              final subtitleParts = [
+                if (category != null && category.isNotEmpty) category,
+                if (city != null && city.isNotEmpty) city,
+                if (phone != null && phone.isNotEmpty) phone,
+              ];
+
+              final isCompleted = status == 'COMPLETED';
 
               return Card(
                 child: Padding(
@@ -229,28 +267,66 @@ class _CollectionsScreenState extends ConsumerState<CollectionsScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Expanded(
-                            child: Text(
-                              name,
-                              style: theme.textTheme.titleMedium?.copyWith(
-                                fontWeight: FontWeight.w700,
-                              ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  name,
+                                  style: theme.textTheme.titleMedium?.copyWith(
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                if (subtitleParts.isNotEmpty) ...[
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    subtitleParts.join(' · '),
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      color: Colors.grey.shade600,
+                                    ),
+                                  ),
+                                ],
+                              ],
                             ),
                           ),
-                          Text(
-                            status.replaceAll('_', ' '),
-                            style: theme.textTheme.bodySmall,
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 3,
+                            ),
+                            decoration: BoxDecoration(
+                              color: isCompleted
+                                  ? Colors.green.shade50
+                                  : Colors.amber.shade50,
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(
+                                color: isCompleted
+                                  ? Colors.green.shade200
+                                  : Colors.amber.shade200,
+                              ),
+                            ),
+                            child: Text(
+                              status.replaceAll('_', ' '),
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: isCompleted
+                                    ? Colors.green.shade800
+                                    : Colors.amber.shade900,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 11,
+                              ),
+                            ),
                           ),
                         ],
                       ),
                       if (existing != null && existing > 0) ...[
-                        const SizedBox(height: 6),
+                        const SizedBox(height: 8),
                         Text(
                           'Collected: ₹${existing.toStringAsFixed(0)}',
                           style: theme.textTheme.bodySmall?.copyWith(
-                            color: Colors.green,
-                            fontWeight: FontWeight.w600,
+                            color: Colors.green.shade700,
+                            fontWeight: FontWeight.w700,
                           ),
                         ),
                       ],

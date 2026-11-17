@@ -27,6 +27,7 @@ class _VisitsScreenState extends ConsumerState<VisitsScreen> {
   List<Map<String, dynamic>> _assignments = [];
   String? _error;
   final _locationService = LocationService();
+  final Set<String> _inFlightCheckIns = {};
 
   @override
   void initState() {
@@ -182,6 +183,9 @@ class _VisitsScreenState extends ConsumerState<VisitsScreen> {
   }
 
   Future<void> _checkIn(String visitId) async {
+    if (_inFlightCheckIns.contains(visitId)) return;
+    setState(() => _inFlightCheckIns.add(visitId));
+
     FieldLocation? loc;
     try {
       loc = await _locationService.currentLocation();
@@ -207,7 +211,13 @@ class _VisitsScreenState extends ConsumerState<VisitsScreen> {
       _showSuccess('Checked in');
       await _loadData();
     } catch (e) {
-      if (_isNetworkError(e)) {
+      final errStr = e.toString().toLowerCase();
+      // If already in progress or completed, refresh state smoothly without error snackbar
+      if (errStr.contains('already in progress') ||
+          errStr.contains('status code of 400') ||
+          errStr.contains('invalid_state')) {
+        await _loadData();
+      } else if (_isNetworkError(e)) {
         await _enqueueAction(
           'CHECK_IN',
           '/api/v1/field-sales/visits/$visitId/check-in',
@@ -216,6 +226,8 @@ class _VisitsScreenState extends ConsumerState<VisitsScreen> {
       } else {
         _showError('Check-in failed: $e');
       }
+    } finally {
+      if (mounted) setState(() => _inFlightCheckIns.remove(visitId));
     }
   }
 
@@ -1220,9 +1232,24 @@ class _VisitsScreenState extends ConsumerState<VisitsScreen> {
               children: [
                 if (status == 'PLANNED') ...[
                   FilledButton.icon(
-                    onPressed: () => _checkIn(visitId),
-                    icon: const Icon(Icons.location_on, size: 18),
-                    label: const Text('Check In'),
+                    onPressed: _inFlightCheckIns.contains(visitId)
+                        ? null
+                        : () => _checkIn(visitId),
+                    icon: _inFlightCheckIns.contains(visitId)
+                        ? const SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Icon(Icons.location_on, size: 18),
+                    label: Text(
+                      _inFlightCheckIns.contains(visitId)
+                          ? 'Checking in…'
+                          : 'Check In',
+                    ),
                   ),
                   OutlinedButton(
                     onPressed: () => _skipVisit(visitId),
@@ -1329,11 +1356,45 @@ class _DetailingSheetState extends ConsumerState<_DetailingSheet> {
   final _samplesCtl = TextEditingController(text: '0');
   final _giftCtl = TextEditingController();
   bool _saving = false;
+  List<Map<String, dynamic>> _catalogItems = [];
+  bool _loadingCatalog = false;
+
+  static const _quickMedicines = [
+    '24 Orthomoon Capsule',
+    'Mustmoon Gold Capsule',
+    'Moonliv Syrup',
+    'Moon Mansosave Syrup',
+    'Platoford Tablet',
+    'Craston Capsule',
+  ];
+
+  static const _quickGifts = [
+    'Visual Aid',
+    'Note Pad & Pen',
+    'Sample Kit',
+    'Prescription Pad',
+  ];
 
   @override
   void initState() {
     super.initState();
     _rows = List.of(widget.initialRows);
+    _loadCatalog();
+  }
+
+  Future<void> _loadCatalog() async {
+    setState(() => _loadingCatalog = true);
+    try {
+      final raw = await ref.read(apiClientProvider).searchItems('');
+      if (mounted) {
+        setState(() {
+          _catalogItems = raw.whereType<Map<String, dynamic>>().toList();
+        });
+      }
+    } catch (_) {
+    } finally {
+      if (mounted) setState(() => _loadingCatalog = false);
+    }
   }
 
   @override
@@ -1342,6 +1403,23 @@ class _DetailingSheetState extends ConsumerState<_DetailingSheet> {
     _samplesCtl.dispose();
     _giftCtl.dispose();
     super.dispose();
+  }
+
+  void _selectProduct(String name) {
+    setState(() {
+      _productCtl.text = name;
+      if (_samplesCtl.text == '0') {
+        _samplesCtl.text = '1';
+      }
+    });
+  }
+
+  void _stepSamples(int delta) {
+    final current = int.tryParse(_samplesCtl.text) ?? 0;
+    final next = (current + delta).clamp(0, 999);
+    setState(() {
+      _samplesCtl.text = next.toString();
+    });
   }
 
   void _addRow() {
@@ -1376,7 +1454,15 @@ class _DetailingSheetState extends ConsumerState<_DetailingSheet> {
                     })
                 .toList(),
           );
-      if (mounted) Navigator.of(context).pop();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Detailing & samples recorded successfully'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        Navigator.of(context).pop();
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1390,77 +1476,317 @@ class _DetailingSheetState extends ConsumerState<_DetailingSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final displayedSuggestions = _catalogItems.isNotEmpty
+        ? _catalogItems.take(8).map((it) => it['name']?.toString() ?? '').where((n) => n.isNotEmpty).toList()
+        : _quickMedicines;
+
     return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Products & Promo',
-                style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 8),
-            ..._rows.asMap().entries.map((entry) => ListTile(
-                  dense: true,
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.medication_outlined),
-                  title: Text(entry.value['productName']?.toString() ?? ''),
-                  subtitle: Text(
-                      'Samples: ${entry.value['sampleQty'] ?? 0}'
-                      '${(entry.value['giftName'] as String?)?.isNotEmpty ?? false ? " • Gift: ${entry.value['giftName']}" : ""}'),
-                  trailing: IconButton(
-                    icon: const Icon(Icons.delete_outline, size: 20),
-                    onPressed: () =>
-                        setState(() => _rows.removeAt(entry.key)),
+      child: Container(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.85,
+        ),
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Products & Promo',
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      Text(
+                        'Record detailed brands, physician samples, and gifts.',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: Colors.grey.shade600,
+                        ),
+                      ),
+                    ],
                   ),
-                )),
-            const Divider(),
-            Row(
-              children: [
-                Expanded(
-                  flex: 3,
-                  child: TextField(
-                    controller: _productCtl,
-                    decoration:
-                        const InputDecoration(labelText: 'Product detailed'),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: TextField(
-                    controller: _samplesCtl,
-                    keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(labelText: 'Samples'),
-                  ),
-                ),
-              ],
-            ),
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _giftCtl,
-                    decoration:
-                        const InputDecoration(labelText: 'Gift (optional)'),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                IconButton.filledTonal(
-                  onPressed: _addRow,
-                  icon: const Icon(Icons.add),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.icon(
-                onPressed: _saving ? null : _save,
-                icon: const Icon(Icons.save),
-                label: Text(_saving ? 'Saving…' : 'Save'),
+                  if (_loadingCatalog)
+                    const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                ],
               ),
-            ),
-          ],
+              const SizedBox(height: 10),
+
+              // Detailed items list
+              if (_rows.isNotEmpty) ...[
+                Text(
+                  'Detailed Products (${_rows.length})',
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                ..._rows.asMap().entries.map((entry) {
+                  final item = entry.value;
+                  final sampleCount = item['sampleQty'] ?? 0;
+                  final gift = item['giftName'] as String?;
+                  return Card(
+                    margin: const EdgeInsets.only(bottom: 6),
+                    elevation: 0,
+                    color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      child: Row(
+                        children: [
+                          Icon(Icons.medication, color: theme.colorScheme.primary, size: 20),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  item['productName']?.toString() ?? '',
+                                  style: const TextStyle(fontWeight: FontWeight.w600),
+                                ),
+                                const SizedBox(height: 2),
+                                Wrap(
+                                  spacing: 6,
+                                  runSpacing: 2,
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: Colors.blue.shade50,
+                                        borderRadius: BorderRadius.circular(4),
+                                        border: Border.all(color: Colors.blue.shade200),
+                                      ),
+                                      child: Text(
+                                        '$sampleCount samples',
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w600,
+                                          color: Colors.blue.shade800,
+                                        ),
+                                      ),
+                                    ),
+                                    if (gift != null && gift.isNotEmpty)
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                        decoration: BoxDecoration(
+                                          color: Colors.purple.shade50,
+                                          borderRadius: BorderRadius.circular(4),
+                                          border: Border.all(color: Colors.purple.shade200),
+                                        ),
+                                        child: Text(
+                                          'Gift: $gift',
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w600,
+                                            color: Colors.purple.shade800,
+                                          ),
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.delete_outline, size: 20, color: Colors.red),
+                            onPressed: () => setState(() => _rows.removeAt(entry.key)),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                }),
+                const Divider(height: 16),
+              ],
+
+              // Product input + suggestions
+              Text(
+                'Add Product & Detailing',
+                style: theme.textTheme.labelMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Autocomplete<String>(
+                initialValue: TextEditingValue(text: _productCtl.text),
+                optionsBuilder: (textEditingValue) {
+                  if (textEditingValue.text.isEmpty) {
+                    return displayedSuggestions;
+                  }
+                  final query = textEditingValue.text.toLowerCase();
+                  if (_catalogItems.isNotEmpty) {
+                    return _catalogItems
+                        .map((it) => it['name']?.toString() ?? '')
+                        .where((name) => name.toLowerCase().contains(query));
+                  }
+                  return _quickMedicines.where((m) => m.toLowerCase().contains(query));
+                },
+                onSelected: (selection) => _selectProduct(selection),
+                fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
+                  // Synchronize
+                  controller.addListener(() {
+                    if (_productCtl.text != controller.text) {
+                      _productCtl.text = controller.text;
+                    }
+                  });
+                  return TextField(
+                    controller: controller,
+                    focusNode: focusNode,
+                    decoration: InputDecoration(
+                      labelText: 'Medicine / Brand detailed *',
+                      hintText: 'Search or tap quick brand below',
+                      prefixIcon: const Icon(Icons.search, size: 20),
+                      suffixIcon: controller.text.isNotEmpty
+                          ? IconButton(
+                              icon: const Icon(Icons.clear, size: 18),
+                              onPressed: () {
+                                controller.clear();
+                                _productCtl.clear();
+                              },
+                            )
+                          : null,
+                    ),
+                  );
+                },
+              ),
+              const SizedBox(height: 6),
+
+              // Quick brand chips
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: displayedSuggestions.map((brand) {
+                    final isSelected = _productCtl.text == brand;
+                    return Padding(
+                      padding: const EdgeInsets.only(right: 6),
+                      child: ActionChip(
+                        avatar: Icon(
+                          Icons.medication,
+                          size: 14,
+                          color: isSelected ? Colors.teal.shade800 : Colors.grey.shade700,
+                        ),
+                        label: Text(
+                          brand,
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                            color: isSelected ? Colors.teal.shade900 : null,
+                          ),
+                        ),
+                        backgroundColor: isSelected ? Colors.teal.shade50 : null,
+                        side: isSelected ? BorderSide(color: Colors.teal.shade400) : null,
+                        onPressed: () => _selectProduct(brand),
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ),
+              const SizedBox(height: 12),
+
+              // Samples Stepper
+              Row(
+                children: [
+                  const Text('Samples Given:', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                  const SizedBox(width: 8),
+                  IconButton.outlined(
+                    icon: const Icon(Icons.remove, size: 16),
+                    onPressed: () => _stepSamples(-1),
+                    visualDensity: VisualDensity.compact,
+                  ),
+                  SizedBox(
+                    width: 48,
+                    child: TextField(
+                      controller: _samplesCtl,
+                      textAlign: TextAlign.center,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                        isDense: true,
+                        contentPadding: EdgeInsets.symmetric(vertical: 8),
+                      ),
+                    ),
+                  ),
+                  IconButton.outlined(
+                    icon: const Icon(Icons.add, size: 16),
+                    onPressed: () => _stepSamples(1),
+                    visualDensity: VisualDensity.compact,
+                  ),
+                  const SizedBox(width: 8),
+                  ...[0, 1, 2, 5].map((q) => Padding(
+                        padding: const EdgeInsets.only(right: 4),
+                        child: ChoiceChip(
+                          label: Text('$q'),
+                          selected: _samplesCtl.text == '$q',
+                          onSelected: (_) => setState(() => _samplesCtl.text = '$q'),
+                          visualDensity: VisualDensity.compact,
+                        ),
+                      )),
+                ],
+              ),
+              const SizedBox(height: 12),
+
+              // Gift input + Quick gifts
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _giftCtl,
+                      decoration: const InputDecoration(
+                        labelText: 'Promotional Gift / Input (optional)',
+                        hintText: 'e.g. Visual Aid, Note Pad',
+                        prefixIcon: Icon(Icons.card_giftcard, size: 20),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton.filledTonal(
+                    onPressed: _addRow,
+                    icon: const Icon(Icons.add),
+                    tooltip: 'Add to detailing list',
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: _quickGifts.map((gift) => Padding(
+                        padding: const EdgeInsets.only(right: 6),
+                        child: ActionChip(
+                          avatar: const Icon(Icons.card_giftcard, size: 14),
+                          label: Text(gift, style: const TextStyle(fontSize: 12)),
+                          onPressed: () => setState(() => _giftCtl.text = gift),
+                        ),
+                      )).toList(),
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // Save button
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: _saving ? null : _save,
+                  icon: _saving
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                        )
+                      : const Icon(Icons.save),
+                  label: Text(_saving ? 'Saving Detailing…' : 'Save Detailing & Samples'),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
