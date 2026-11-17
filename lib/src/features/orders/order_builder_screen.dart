@@ -350,8 +350,16 @@ class _OrderBuilderScreenState extends ConsumerState<OrderBuilderScreen> {
       } catch (e) {
         if (mounted) {
           setState(() => _submitting = false);
+          String message = e.toString();
+          if (e is DioException && e.response?.data is Map) {
+            final data = e.response!.data as Map;
+            message = data['message']?.toString() ?? data['error']?.toString() ?? message;
+          }
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('POB Booking failed: $e')),
+            SnackBar(
+              content: Text('POB Booking failed: $message'),
+              backgroundColor: Colors.red.shade700,
+            ),
           );
         }
         return;
