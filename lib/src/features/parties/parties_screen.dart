@@ -507,46 +507,125 @@ class _ContactCard extends StatelessWidget {
                 ],
               ),
 
-              // Action buttons for Chemist (Book POB & RCPA)
-              if (isChemist) ...[
-                const SizedBox(height: 10),
-                const Divider(height: 1),
-                const SizedBox(height: 8),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    OutlinedButton.icon(
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                        minimumSize: Size.zero,
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        side: BorderSide(color: Colors.teal.shade400),
-                      ),
-                      onPressed: onRcpa,
-                      icon: Icon(Icons.analytics_outlined, size: 14, color: Colors.teal.shade700),
-                      label: Text(
-                        'RCPA Audit',
-                        style: TextStyle(fontSize: 12, color: Colors.teal.shade800, fontWeight: FontWeight.bold),
+              const SizedBox(height: 10),
+              const Divider(height: 1),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  if (phone.isNotEmpty) ...[
+                    InkWell(
+                      onTap: () {
+                        final clean = phone.replaceAll(RegExp(r'[^\d+]'), '');
+                        if (clean.isNotEmpty) launchUrl(Uri.parse('tel:$clean'));
+                      },
+                      borderRadius: BorderRadius.circular(6),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFE0F2FE),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.phone, size: 13, color: Color(0xFF0369A1)),
+                            SizedBox(width: 4),
+                            Text('Call', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF0369A1))),
+                          ],
+                        ),
                       ),
                     ),
-                    const SizedBox(width: 8),
+                    const SizedBox(width: 6),
+                    InkWell(
+                      onTap: () {
+                        final digits = phone.replaceAll(RegExp(r'[^\d]'), '');
+                        if (digits.isEmpty) return;
+                        final numWithCountry = digits.length == 10 ? '91$digits' : digits;
+                        final text = Uri.encodeComponent('Hello $name, greetings from Moonford Pharmaceuticals.');
+                        launchUrl(
+                          Uri.parse('https://wa.me/$numWithCountry?text=$text'),
+                          mode: LaunchMode.externalApplication,
+                        );
+                      },
+                      borderRadius: BorderRadius.circular(6),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFDCFCE7),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.chat_bubble_outline, size: 13, color: Color(0xFF15803D)),
+                            SizedBox(width: 4),
+                            Text('WhatsApp', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF15803D))),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                  ],
+                  InkWell(
+                    onTap: () {
+                      final q = [name, if (city.isNotEmpty) city, if (district.isNotEmpty) district].join(', ');
+                      launchUrl(
+                        Uri.parse('https://www.google.com/maps/search/?api=1&query=${Uri.encodeComponent(q)}'),
+                        mode: LaunchMode.externalApplication,
+                      );
+                    },
+                    borderRadius: BorderRadius.circular(6),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF1F5F9),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.directions, size: 13, color: Color(0xFF475569)),
+                          SizedBox(width: 4),
+                          Text('Maps', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF475569))),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const Spacer(),
+                  if (isChemist) ...[
+                    OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        side: const BorderSide(color: Color(0xFF0B6B5E)),
+                      ),
+                      onPressed: onRcpa,
+                      icon: const Icon(Icons.analytics_outlined, size: 13, color: Color(0xFF0B6B5E)),
+                      label: const Text(
+                        'RCPA',
+                        style: TextStyle(fontSize: 11, color: Color(0xFF0B6B5E), fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                  ],
+                  if (!isDoctor)
                     FilledButton.icon(
                       style: FilledButton.styleFrom(
-                        backgroundColor: const Color(0xFF059669),
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                        backgroundColor: const Color(0xFF0B6B5E),
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                         minimumSize: Size.zero,
                         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       ),
                       onPressed: onBookPob,
-                      icon: const Icon(Icons.shopping_bag_outlined, size: 14),
-                      label: const Text(
-                        'Book POB',
-                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                      icon: const Icon(Icons.shopping_bag_outlined, size: 13),
+                      label: Text(
+                        isChemist ? 'Book POB' : 'Order',
+                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
                       ),
                     ),
-                  ],
-                ),
-              ],
+                ],
+              ),
             ],
           ),
         ),

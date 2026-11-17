@@ -301,34 +301,106 @@ class _DcrScreenState extends ConsumerState<DcrScreen> {
                 ],
                 const SizedBox(height: 16),
                 if (_submittable) ...[
-                  DropdownButtonFormField<String>(
-                    initialValue: _workType,
-                    decoration: const InputDecoration(labelText: 'Work type'),
-                    items: [
-                      const DropdownMenuItem(
-                          value: 'FIELD_WORK', child: Text('Field work')),
-                      const DropdownMenuItem(
-                          value: 'MEETING', child: Text('Meeting')),
-                      const DropdownMenuItem(value: 'OFFICE', child: Text('Office')),
-                      DropdownMenuItem(
-                          value: 'CAMP',
-                          child: Text(isPharma ? 'Camp / CME' : 'Camp / Event')),
-                      const DropdownMenuItem(value: 'LEAVE', child: Text('Leave')),
-                    ],
-                    onChanged: (v) =>
-                        setState(() => _workType = v ?? 'FIELD_WORK'),
-                  ),
-                  const SizedBox(height: 8),
-                  TextField(
-                    controller: _remarksCtl,
-                    maxLines: 2,
-                    decoration: const InputDecoration(labelText: 'Remarks'),
-                  ),
-                  const SizedBox(height: 12),
-                  FilledButton.icon(
-                    onPressed: _submit,
-                    icon: const Icon(Icons.send),
-                    label: const Text('Submit Daily Report'),
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'WORK TYPE',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w800,
+                              color: Color(0xFF64748B),
+                              letterSpacing: 0.4,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Wrap(
+                            spacing: 6,
+                            runSpacing: 6,
+                            children: [
+                              ('FIELD_WORK', 'Field Beat', Icons.route_outlined),
+                              ('MEETING', 'Review Meeting', Icons.groups_outlined),
+                              ('CAMP', isPharma ? 'Camp / CME' : 'Event', Icons.local_hospital_outlined),
+                              ('OFFICE', 'HO / Admin', Icons.business_outlined),
+                              ('LEAVE', 'Leave', Icons.beach_access_outlined),
+                            ].map((w) {
+                              final selected = _workType == w.$1;
+                              return ChoiceChip(
+                                selected: selected,
+                                selectedColor: const Color(0xFF0B6B5E),
+                                label: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      w.$3,
+                                      size: 14,
+                                      color: selected ? Colors.white : const Color(0xFF475569),
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      w.$2,
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w700,
+                                        color: selected ? Colors.white : const Color(0xFF334155),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                onSelected: (_) => setState(() => _workType = w.$1),
+                              );
+                            }).toList(),
+                          ),
+                          const SizedBox(height: 14),
+                          const Text(
+                            '1-TAP DCR SUMMARY REMARKS',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w800,
+                              color: Color(0xFF0B6B5E),
+                              letterSpacing: 0.4,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Wrap(
+                            spacing: 6,
+                            runSpacing: 6,
+                            children: [
+                              'Completed all scheduled doctor & chemist calls as per MTP.',
+                              'Strong Rx support for focus brands; stockist POBs dispatched.',
+                              'Conducted chemist RCPA audit & sample distribution in HQ beat.',
+                              'Joint field working with ASM; key KOL conversions achieved.',
+                            ].map((rem) {
+                              return ActionChip(
+                                visualDensity: VisualDensity.compact,
+                                label: Text(rem, style: const TextStyle(fontSize: 11)),
+                                onPressed: () => setState(() => _remarksCtl.text = rem),
+                              );
+                            }).toList(),
+                          ),
+                          const SizedBox(height: 10),
+                          TextField(
+                            controller: _remarksCtl,
+                            maxLines: 2,
+                            decoration: const InputDecoration(
+                              labelText: 'DCR Executive Summary / Remarks',
+                            ),
+                          ),
+                          const SizedBox(height: 14),
+                          SizedBox(
+                            width: double.infinity,
+                            child: FilledButton.icon(
+                              onPressed: _submit,
+                              icon: const Icon(Icons.send_rounded, size: 18),
+                              label: const Text('Submit Daily Call Report (DCR)'),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
                 ],
                 const SizedBox(height: 24),

@@ -173,25 +173,92 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen> {
           ],
           Card(
             child: Padding(
-              padding: const EdgeInsets.all(14),
+              padding: const EdgeInsets.all(16),
               child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  DropdownButtonFormField<String>(
-                    initialValue: _category,
-                    decoration: const InputDecoration(
-                      labelText: 'Expense type',
+                  const Text(
+                    '1-TAP PHARMA TA / DA PRESETS',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFF0B6B5E),
+                      letterSpacing: 0.4,
                     ),
-                    items: _categories
-                        .map(
-                          (c) => DropdownMenuItem(
-                            value: c,
-                            child: Text(_categoryLabel(c)),
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: [
+                      ('FOOD', 'HQ Daily Allowance (₹250)', '250', 'HQ Daily Allowance — Standard Field Beat'),
+                      ('TRAVEL', 'Ex-HQ DA + Fuel (₹450)', '450', 'Ex-HQ Outstation Beat + Bike Fuel'),
+                      ('TRAVEL', 'Bike Petrol 50 KM (₹200)', '200', 'Bike Fuel Claim — 50 KM @ ₹4/km'),
+                      ('FOOD', 'Outstation DA + Meals (₹600)', '600', 'Outstation Daily Allowance & Working Meals'),
+                      ('LODGING', 'Hotel Lodging (₹1200)', '1200', 'Outstation Night Halt Hotel Bill'),
+                    ].map((preset) {
+                      return ActionChip(
+                        visualDensity: VisualDensity.compact,
+                        backgroundColor: const Color(0xFFECFDF5),
+                        side: const BorderSide(color: Color(0xFFA7F3D0)),
+                        label: Text(
+                          preset.$2,
+                          style: const TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFF065F46),
                           ),
-                        )
-                        .toList(),
-                    onChanged: (value) {
-                      if (value != null) setState(() => _category = value);
-                    },
+                        ),
+                        onPressed: () {
+                          setState(() {
+                            _category = preset.$1;
+                            _amountController.text = preset.$3;
+                            _notesController.text = preset.$4;
+                          });
+                        },
+                      );
+                    }).toList(),
+                  ),
+                  const SizedBox(height: 14),
+                  const Text(
+                    'EXPENSE CATEGORY',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFF64748B),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 6,
+                    children: _categories.map((c) {
+                      final selected = _category == c;
+                      return ChoiceChip(
+                        selected: selected,
+                        selectedColor: const Color(0xFF0B6B5E),
+                        label: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              _categoryIcon(c),
+                              size: 15,
+                              color: selected ? Colors.white : const Color(0xFF475569),
+                            ),
+                            const SizedBox(width: 5),
+                            Text(
+                              _categoryLabel(c),
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                color: selected ? Colors.white : const Color(0xFF334155),
+                              ),
+                            ),
+                          ],
+                        ),
+                        onSelected: (_) => setState(() => _category = c),
+                      );
+                    }).toList(),
                   ),
                   const SizedBox(height: 12),
                   TextField(
@@ -200,7 +267,7 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen> {
                       decimal: true,
                     ),
                     decoration: const InputDecoration(
-                      labelText: 'Amount',
+                      labelText: 'Amount (₹) *',
                       prefixText: '₹ ',
                     ),
                   ),
@@ -208,34 +275,36 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen> {
                   TextField(
                     controller: _notesController,
                     minLines: 2,
-                    maxLines: 4,
-                    decoration: const InputDecoration(labelText: 'Notes'),
-                  ),
-                  const SizedBox(height: 12),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: OutlinedButton.icon(
-                      onPressed: _pickReceipt,
-                      icon: const Icon(Icons.photo_camera),
-                      label: Text(_receipt == null ? 'Attach receipt photo' : 'Receipt attached'),
+                    maxLines: 3,
+                    decoration: const InputDecoration(
+                      labelText: 'Expense Description / Route Remarks',
                     ),
                   ),
                   const SizedBox(height: 12),
-                  SizedBox(
-                    width: double.infinity,
-                    child: FilledButton.icon(
-                      onPressed: (isDemo || _submitting) ? null : _submit,
-                      icon: _submitting
-                          ? const SizedBox(
-                              height: 18,
-                              width: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.check),
-                      label: Text(
-                        _submitting ? 'Recording…' : 'Record expense',
+                  Row(
+                    children: [
+                      OutlinedButton.icon(
+                        onPressed: _pickReceipt,
+                        icon: const Icon(Icons.photo_camera, size: 18),
+                        label: Text(_receipt == null ? 'Attach Bill Photo' : 'Bill Attached ✓'),
                       ),
-                    ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: FilledButton.icon(
+                          onPressed: (isDemo || _submitting) ? null : _submit,
+                          icon: _submitting
+                              ? const SizedBox(
+                                  height: 18,
+                                  width: 18,
+                                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                )
+                              : const Icon(Icons.check_circle_outline, size: 18),
+                          label: Text(
+                            _submitting ? 'Submitting…' : 'Submit Claim',
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),

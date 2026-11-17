@@ -497,9 +497,94 @@ class _OrderBuilderScreenState extends ConsumerState<OrderBuilderScreen> {
     Navigator.of(context).pop(true);
   }
 
+  Future<void> _showQuickAmountDialog() async {
+    if (widget.visitId.isEmpty) return;
+    final valueCtl = TextEditingController();
+    final soIdCtl = TextEditingController();
+    final proceed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Quick Order Value'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Record a lump-sum order value quickly (works offline).',
+              style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [2500, 5000, 10000, 15000, 25000].map((amt) {
+                return ActionChip(
+                  label: Text('₹$amt', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                  onPressed: () => valueCtl.text = '$amt',
+                );
+              }).toList(),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: valueCtl,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                labelText: 'Order Value (₹) *',
+                prefixText: '₹ ',
+              ),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: soIdCtl,
+              decoration: const InputDecoration(
+                labelText: 'Ref / POB Note (Optional)',
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              if (valueCtl.text.trim().isEmpty) return;
+              Navigator.pop(ctx, true);
+            },
+            child: const Text('Save Order Value'),
+          ),
+        ],
+      ),
+    );
+    if (proceed != true || !mounted) return;
+    final val = double.tryParse(valueCtl.text.trim()) ?? 0;
+    try {
+      await ref.read(apiClientProvider).recordOrder(
+            widget.visitId,
+            salesOrderId: soIdCtl.text.trim(),
+            orderValue: val,
+          );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Order value ${_money(val)} recorded!'),
+          backgroundColor: Colors.green,
+        ),
+      );
+      Navigator.of(context).pop(true);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed: $e')),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final totalUnits = _cart.fold<int>(0, (s, l) => s + l.quantity);
 
     if (widget.contactId.isEmpty) {
       return Scaffold(
@@ -531,6 +616,7 @@ class _OrderBuilderScreenState extends ConsumerState<OrderBuilderScreen> {
           children: [
             Text(
               _selectedStockistId != null ? 'Chemist POB Booking' : 'Build Order',
+              style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 17),
             ),
             Text(
               widget.contactName,
@@ -540,6 +626,17 @@ class _OrderBuilderScreenState extends ConsumerState<OrderBuilderScreen> {
             ),
           ],
         ),
+        actions: [
+          if (widget.visitId.isNotEmpty)
+            TextButton.icon(
+              onPressed: _showQuickAmountDialog,
+              icon: const Icon(Icons.bolt, size: 16, color: Color(0xFF0B6B5E)),
+              label: const Text(
+                'Quick ₹',
+                style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF0B6B5E)),
+              ),
+            ),
+        ],
       ),
       body: Column(
         children: [
@@ -549,13 +646,13 @@ class _OrderBuilderScreenState extends ConsumerState<OrderBuilderScreen> {
               margin: const EdgeInsets.fromLTRB(16, 8, 16, 4),
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
               decoration: BoxDecoration(
-                color: const Color(0xFFEEF2FF), // Indigo tint
+                color: const Color(0xFFECFDF5),
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: const Color(0xFFC7D2FE)),
+                border: Border.all(color: const Color(0xFFA7F3D0)),
               ),
               child: Row(
                 children: [
-                  const Icon(Icons.warehouse, size: 20, color: Color(0xFF4F46E5)),
+                  const Icon(Icons.warehouse_outlined, size: 20, color: Color(0xFF0B6B5E)),
                   const SizedBox(width: 10),
                   Expanded(
                     child: DropdownButtonHideUnderline(
@@ -573,7 +670,10 @@ class _OrderBuilderScreenState extends ConsumerState<OrderBuilderScreen> {
                             final name = s['displayName']?.toString() ?? 'Stockist';
                             return DropdownMenuItem(
                               value: id,
-                              child: Text('Stockist: $name'),
+                              child: Text(
+                                'Stockist: $name',
+                                style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                              ),
                             );
                           }),
                         ],
@@ -604,7 +704,7 @@ class _OrderBuilderScreenState extends ConsumerState<OrderBuilderScreen> {
             child: TextField(
               controller: _searchCtl,
               decoration: InputDecoration(
-                hintText: 'Search catalog items by name or SKU…',
+                hintText: 'Filter medicines & products by brand or SKU…',
                 prefixIcon: const Icon(Icons.search),
                 suffixIcon: _searchCtl.text.isNotEmpty
                     ? IconButton(
@@ -621,9 +721,52 @@ class _OrderBuilderScreenState extends ConsumerState<OrderBuilderScreen> {
             ),
           ),
 
+          // Live Cart Summary Pill Strip
+          if (_cart.isNotEmpty)
+            Container(
+              margin: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: const Color(0xFF0F172A),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.shopping_bag, size: 16, color: Color(0xFF10B981)),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      '${_cart.length} Brand${_cart.length == 1 ? '' : 's'} ($totalUnits units) in Cart · ${_money(_grandTotal)}',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  InkWell(
+                    onTap: () {
+                      setState(() {
+                        _removedLines.addAll(_cart);
+                        _cart.clear();
+                      });
+                    },
+                    child: const Text(
+                      'Clear',
+                      style: TextStyle(
+                        color: Color(0xFFFCA5A5),
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
           Expanded(
             child: ListView(
-              padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 20),
               children: [
                 if (_searching)
                   const Padding(
@@ -648,42 +791,10 @@ class _OrderBuilderScreenState extends ConsumerState<OrderBuilderScreen> {
                   const Card(
                     child: Padding(
                       padding: EdgeInsets.all(14),
-                      child: Text('No items found.'),
+                      child: Text('No items found matching search.'),
                     ),
                   ),
                 ..._results.map((item) => _buildResultTile(item, theme)),
-
-                if (_cart.isNotEmpty) ...[
-                  const SizedBox(height: 12),
-                  Text(
-                    'Order Cart (${_cart.length} item${_cart.length == 1 ? '' : 's'})',
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  ..._cart.map((line) => _buildCartLine(line, theme)),
-                ] else if (_searchCtl.text.trim().isEmpty) ...[
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(14),
-                      child: Row(
-                        children: [
-                          Icon(
-                            Icons.shopping_cart_outlined,
-                            color: Colors.grey.shade400,
-                          ),
-                          const SizedBox(width: 10),
-                          const Expanded(
-                            child: Text(
-                              'Search the catalog above and tap an item to add it to the cart.',
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
               ],
             ),
           ),
@@ -691,13 +802,13 @@ class _OrderBuilderScreenState extends ConsumerState<OrderBuilderScreen> {
       ),
       bottomNavigationBar: SafeArea(
         child: Container(
-          padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
           decoration: BoxDecoration(
-            color: theme.colorScheme.surface,
+            color: Colors.white,
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withValues(alpha: 0.08),
-                blurRadius: 8,
+                blurRadius: 10,
                 offset: const Offset(0, -2),
               ),
             ],
@@ -709,11 +820,17 @@ class _OrderBuilderScreenState extends ConsumerState<OrderBuilderScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text('Total Amount', style: theme.textTheme.bodySmall),
+                    Text(
+                      _cart.isEmpty
+                          ? 'Tap + ADD on any product'
+                          : '${_cart.length} brands · $totalUnits units',
+                      style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                    ),
                     Text(
                       _money(_grandTotal),
                       style: theme.textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w800,
+                        fontWeight: FontWeight.w900,
+                        color: const Color(0xFF0F172A),
                       ),
                     ),
                   ],
@@ -721,9 +838,9 @@ class _OrderBuilderScreenState extends ConsumerState<OrderBuilderScreen> {
               ),
               FilledButton.icon(
                 style: FilledButton.styleFrom(
-                  backgroundColor: _selectedStockistId != null
-                      ? const Color(0xFF059669) // Emerald for POB
-                      : null,
+                  backgroundColor: const Color(0xFF0B6B5E),
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 ),
                 onPressed: _cart.isEmpty || _submitting ? null : _placeOrder,
                 icon: _submitting
@@ -737,8 +854,9 @@ class _OrderBuilderScreenState extends ConsumerState<OrderBuilderScreen> {
                   _submitting
                       ? 'Booking…'
                       : _selectedStockistId != null
-                          ? 'Book POB'
+                          ? 'Book POB & Share'
                           : 'Place Order',
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
                 ),
               ),
             ],
@@ -749,121 +867,191 @@ class _OrderBuilderScreenState extends ConsumerState<OrderBuilderScreen> {
   }
 
   Widget _buildResultTile(Map<String, dynamic> item, ThemeData theme) {
+    final itemId = item['id']?.toString() ?? '';
     final name = item['name']?.toString() ?? 'Item';
     final sku = item['sku']?.toString();
     final salePrice = (item['salePrice'] as num?)?.toDouble() ?? 0;
     final onHand = (item['totalOnHand'] as num?)?.toDouble();
     final trackInventory = item['trackInventory'] == true;
-    final inCart = _cart.any((l) => l.itemId == item['id']?.toString());
+
+    final cartLine = _cart.where((l) => l.itemId == itemId).firstOrNull;
+    final inCart = cartLine != null;
 
     return Card(
-      child: ListTile(
-        dense: true,
-        title: Text(
-          name,
-          style: theme.textTheme.titleSmall?.copyWith(
-            fontWeight: FontWeight.w700,
-          ),
+      elevation: 0,
+      margin: const EdgeInsets.only(bottom: 8),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(
+          color: inCart ? const Color(0xFF10B981) : const Color(0xFFE2E8F0),
+          width: inCart ? 1.5 : 1.0,
         ),
-        subtitle: Text(
-          [
-            if (sku != null && sku.isNotEmpty) sku,
-            _money(salePrice),
-            if (trackInventory && onHand != null)
-              '${onHand.toStringAsFixed(onHand == onHand.roundToDouble() ? 0 : 1)} on hand',
-          ].join(' · '),
-          style: theme.textTheme.bodySmall,
-        ),
-        trailing: Icon(
-          inCart ? Icons.add_circle : Icons.add_circle_outline,
-          color: theme.colorScheme.primary,
-        ),
-        onTap: () => _addToCart(item),
       ),
-    );
-  }
-
-  Widget _buildCartLine(_CartLine line, ThemeData theme) {
-    return Card(
+      color: inCart ? const Color(0xFFF0FDF4) : Colors.white,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
                 Expanded(
-                  child: Text(
-                    line.name,
-                    style: theme.textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w700,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        name,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 14,
+                          color: Color(0xFF0F172A),
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        [
+                          if (sku != null && sku.isNotEmpty) sku,
+                          'PTR: ${_money(salePrice)}',
+                          if (trackInventory && onHand != null)
+                            '${onHand.toStringAsFixed(0)} in stock',
+                        ].join(' · '),
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Color(0xFF64748B),
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (!inCart)
+                  FilledButton.tonalIcon(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: const Color(0xFFECFDF5),
+                      foregroundColor: const Color(0xFF0B6B5E),
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                      minimumSize: Size.zero,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        side: const BorderSide(color: Color(0xFFA7F3D0)),
+                      ),
+                    ),
+                    onPressed: () => _addToCart(item),
+                    icon: const Icon(Icons.add, size: 16),
+                    label: const Text(
+                      'ADD',
+                      style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12),
+                    ),
+                  )
+                else
+                  Container(
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF0B6B5E),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        InkWell(
+                          onTap: () => _changeQty(cartLine, -1),
+                          child: const Padding(
+                            padding: EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                            child: Icon(Icons.remove, size: 16, color: Colors.white),
+                          ),
+                        ),
+                        Text(
+                          '${cartLine.quantity}',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 14,
+                          ),
+                        ),
+                        InkWell(
+                          onTap: () => _changeQty(cartLine, 1),
+                          child: const Padding(
+                            padding: EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                            child: Icon(Icons.add, size: 16, color: Colors.white),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                ),
-                Text(
-                  _money(line.lineTotal),
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
               ],
             ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                IconButton(
-                  visualDensity: VisualDensity.compact,
-                  icon: Icon(
-                    line.quantity == 1
-                        ? Icons.delete_outline
-                        : Icons.remove_circle_outline,
-                    size: 22,
-                    color: line.quantity == 1
-                        ? Colors.red
-                        : theme.colorScheme.primary,
+            if (inCart) ...[
+              const SizedBox(height: 8),
+              const Divider(height: 1, color: Color(0xFFBBF7D0)),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  // Quick pack quantity chips
+                  Expanded(
+                    child: Wrap(
+                      spacing: 6,
+                      runSpacing: 4,
+                      children: [
+                        _packChip('+5', () => _changeQty(cartLine, 5)),
+                        _packChip('+10', () => _changeQty(cartLine, 10)),
+                        _packChip('+20', () => _changeQty(cartLine, 20)),
+                        _packChip('10+2 Box', () {
+                          setState(() => cartLine.quantity = 10);
+                        }),
+                      ],
+                    ),
                   ),
-                  onPressed: () => _changeQty(line, -1),
-                ),
-                SizedBox(
-                  width: 32,
-                  child: Text(
-                    '${line.quantity}',
-                    textAlign: TextAlign.center,
-                    style: theme.textTheme.titleMedium?.copyWith(
+                  SizedBox(
+                    width: 86,
+                    child: TextField(
+                      controller: cartLine.rateCtl,
+                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      textAlign: TextAlign.right,
+                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                      decoration: const InputDecoration(
+                        labelText: 'Rate ₹',
+                        isDense: true,
+                        contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                      ),
+                      onChanged: (_) => setState(() {}),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Text(
+                    _money(cartLine.lineTotal),
+                    style: const TextStyle(
                       fontWeight: FontWeight.w800,
+                      fontSize: 14,
+                      color: Color(0xFF065F46),
                     ),
                   ),
-                ),
-                IconButton(
-                  visualDensity: VisualDensity.compact,
-                  icon: Icon(
-                    Icons.add_circle_outline,
-                    size: 22,
-                    color: theme.colorScheme.primary,
-                  ),
-                  onPressed: () => _changeQty(line, 1),
-                ),
-                const Spacer(),
-                SizedBox(
-                  width: 110,
-                  child: TextField(
-                    controller: line.rateCtl,
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
-                    ),
-                    textAlign: TextAlign.right,
-                    decoration: const InputDecoration(
-                      labelText: 'Rate',
-                      prefixText: '₹ ',
-                      isDense: true,
-                      border: OutlineInputBorder(),
-                    ),
-                    onChanged: (_) => setState(() {}),
-                  ),
-                ),
-              ],
-            ),
+                ],
+              ),
+            ],
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _packChip(String label, VoidCallback onTap) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(6),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: const Color(0xFF86EFAC)),
+        ),
+        child: Text(
+          label,
+          style: const TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+            color: Color(0xFF047857),
+          ),
         ),
       ),
     );

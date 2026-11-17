@@ -329,26 +329,71 @@ class _VisitsScreenState extends ConsumerState<VisitsScreen> {
 
   Future<void> _checkOut(String visitId) async {
     final notesCtl = TextEditingController();
+    const quickRemarks = [
+      'Positive Rx commitment for Orthomoon & Mustmoon',
+      'POB booked & stockist supply advised',
+      'Physician samples handed over, follow-up in 15 days',
+      'RCPA completed — competitor brand identified',
+      'Payment collected & ledger reconciled',
+    ];
+
     final proceed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Check Out'),
-        content: TextField(
-          controller: notesCtl,
-          decoration: const InputDecoration(
-            labelText: 'Notes',
-            hintText: 'Visit remarks (optional)',
+        title: const Row(
+          children: [
+            Icon(Icons.check_circle_outline, color: Color(0xFF0B6B5E)),
+            SizedBox(width: 8),
+            Text('Complete Call & Check Out'),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                '1-TAP CALL OUTCOME (OPTIONAL)',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w800,
+                  color: Color(0xFF64748B),
+                  letterSpacing: 0.4,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: quickRemarks.map((remark) {
+                  return ActionChip(
+                    visualDensity: VisualDensity.compact,
+                    label: Text(remark, style: const TextStyle(fontSize: 11)),
+                    onPressed: () => notesCtl.text = remark,
+                  );
+                }).toList(),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: notesCtl,
+                decoration: const InputDecoration(
+                  labelText: 'Call Summary / Remarks',
+                  hintText: 'Tap a quick outcome above or type notes…',
+                ),
+                maxLines: 2,
+              ),
+            ],
           ),
-          maxLines: 2,
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
             child: const Text('Cancel'),
           ),
-          FilledButton(
+          FilledButton.icon(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Check Out'),
+            icon: const Icon(Icons.check, size: 18),
+            label: const Text('Complete Check-Out'),
           ),
         ],
       ),
@@ -395,17 +440,55 @@ class _VisitsScreenState extends ConsumerState<VisitsScreen> {
 
   Future<void> _skipVisit(String visitId) async {
     final reasonCtl = TextEditingController();
+    const quickSkipReasons = [
+      'Doctor in OT / Emergency',
+      'Clinic / Shop Closed',
+      'Out of Station / Leave',
+      'Busy — Requested Next Week Visit',
+      'Stock Sufficient / No Order Today',
+    ];
+
     final proceed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Skip Visit'),
-        content: TextField(
-          controller: reasonCtl,
-          decoration: const InputDecoration(
-            labelText: 'Reason *',
-            hintText: 'e.g. Shop closed, owner unavailable',
+        title: const Text('Skip Customer Stop'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                '1-TAP SKIP REASON',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w800,
+                  color: Color(0xFF64748B),
+                  letterSpacing: 0.4,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: quickSkipReasons.map((r) {
+                  return ActionChip(
+                    visualDensity: VisualDensity.compact,
+                    label: Text(r, style: const TextStyle(fontSize: 11)),
+                    onPressed: () => reasonCtl.text = r,
+                  );
+                }).toList(),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: reasonCtl,
+                decoration: const InputDecoration(
+                  labelText: 'Reason *',
+                  hintText: 'Select a reason chip above or type…',
+                ),
+                maxLines: 2,
+              ),
+            ],
           ),
-          maxLines: 2,
         ),
         actions: [
           TextButton(
@@ -422,7 +505,7 @@ class _VisitsScreenState extends ConsumerState<VisitsScreen> {
               }
               Navigator.pop(ctx, true);
             },
-            child: const Text('Skip'),
+            child: const Text('Confirm Skip'),
           ),
         ],
       ),
@@ -440,9 +523,8 @@ class _VisitsScreenState extends ConsumerState<VisitsScreen> {
     }
   }
 
-  /// Record Order entry point: bottom sheet with two paths —
-  /// build a real line-item Sales Order, or the quick-amount dialog
-  /// (which stays offline-capable).
+  /// Launches OrderBuilderScreen directly in 1 tap (no extra bottom sheet popup).
+  /// OrderBuilderScreen also includes a 'Quick ₹' button in its AppBar for offline lump-sum entries.
   Future<void> _showOrderOptions(Map<String, dynamic> visit) async {
     final visitId = visit['id']?.toString() ?? '';
     final contactId = visit['contactId']?.toString() ?? '';
@@ -451,160 +533,161 @@ class _VisitsScreenState extends ConsumerState<VisitsScreen> {
         visit['contactId']?.toString() ??
         'Customer';
 
-    final choice = await showModalBottomSheet<String>(
-      context: context,
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 8),
-            ListTile(
-              leading: const Icon(Icons.inventory_2_outlined),
-              title: const Text('Build order (items)'),
-              subtitle: const Text(
-                'Browse catalog, build a cart, create a Sales Order',
-              ),
-              onTap: () => Navigator.pop(ctx, 'build'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.currency_rupee),
-              title: const Text('Quick amount'),
-              subtitle: const Text(
-                'Just record the order value (works offline)',
-              ),
-              onTap: () => Navigator.pop(ctx, 'quick'),
-            ),
-            const SizedBox(height: 8),
-          ],
+    final placed = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => OrderBuilderScreen(
+          visitId: visitId,
+          contactId: contactId,
+          contactName: contactName,
+          medicalCategory: visit['medicalCategory']?.toString(),
         ),
       ),
     );
-    if (choice == null || !mounted) return;
-
-    if (choice == 'build') {
-      final placed = await Navigator.of(context).push<bool>(
-        MaterialPageRoute(
-          builder: (_) => OrderBuilderScreen(
-            visitId: visitId,
-            contactId: contactId,
-            contactName: contactName,
-            medicalCategory: visit['medicalCategory']?.toString(),
-          ),
-        ),
-      );
-      if (placed == true && mounted) await _loadData();
-    } else {
-      await _recordOrder(visitId);
-    }
-  }
-
-  Future<void> _recordOrder(String visitId) async {
-    final valueCtl = TextEditingController();
-    final soIdCtl = TextEditingController();
-    final proceed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Record Order'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: soIdCtl,
-              decoration: const InputDecoration(
-                labelText: 'Sales Order ID',
-                hintText: 'Optional',
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: valueCtl,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(
-                labelText: 'Order Value *',
-                hintText: 'e.g. 5000',
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () {
-              if (valueCtl.text.trim().isEmpty) {
-                ScaffoldMessenger.of(ctx).showSnackBar(
-                  const SnackBar(content: Text('Order value is required')),
-                );
-                return;
-              }
-              Navigator.pop(ctx, true);
-            },
-            child: const Text('Record'),
-          ),
-        ],
-      ),
-    );
-    if (proceed != true || !mounted) return;
-
-    final salesOrderId = soIdCtl.text.trim();
-    final orderValue = double.tryParse(valueCtl.text.trim()) ?? 0;
-
-    try {
-      await ref
-          .read(apiClientProvider)
-          .recordOrder(visitId, salesOrderId: salesOrderId, orderValue: orderValue);
-      _showSuccess('Order recorded');
-      await _loadData();
-    } catch (e) {
-      if (_isNetworkError(e)) {
-        await _enqueueAction(
-          'RECORD_ORDER',
-          '/api/v1/field-sales/visits/$visitId/record-order',
-          {'salesOrderId': salesOrderId, 'orderValue': orderValue},
-        );
-      } else {
-        _showError('Failed to record order: $e');
-      }
-    }
+    if (placed == true && mounted) await _loadData();
   }
 
   Future<void> _recordCollection(String visitId) async {
-    final amountCtl = TextEditingController();
+    final visit = _visits.where((v) => v['id']?.toString() == visitId).firstOrNull;
+    final contactName = visit?['contactName']?.toString() ?? 'Customer';
+    final outstandingAr = (visit?['outstandingAr'] as num?)?.toDouble() ?? 0.0;
+
+    final amountCtl = TextEditingController(
+      text: outstandingAr > 0 ? outstandingAr.toStringAsFixed(0) : '',
+    );
     String paymentMethod = 'CASH';
+
+    const modes = [
+      ('CASH', 'Cash', Icons.payments_outlined),
+      ('UPI', 'UPI / QR', Icons.qr_code_2_rounded),
+      ('BANK_TRANSFER', 'NEFT / RTGS', Icons.account_balance_outlined),
+      ('CHEQUE', 'Cheque', Icons.receipt_long_outlined),
+    ];
+
+    final quickAmounts = <int>{
+      if (outstandingAr > 0) outstandingAr.round(),
+      if (outstandingAr >= 1000) (outstandingAr / 2).round(),
+      500,
+      1000,
+      2500,
+      5000,
+      10000,
+    }.toList();
+
     final proceed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Record Collection'),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Record Payment Collection', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
+            Text(contactName, style: const TextStyle(fontSize: 12, color: Color(0xFF64748B))),
+          ],
+        ),
         content: StatefulBuilder(
-          builder: (ctx, setDialogState) => Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: amountCtl,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                  labelText: 'Amount *',
-                  hintText: 'e.g. 2500',
-                ),
-              ),
-              const SizedBox(height: 12),
-              DropdownButtonFormField<String>(
-                initialValue: paymentMethod,
-                decoration: const InputDecoration(labelText: 'Payment method'),
-                items: const [
-                  DropdownMenuItem(value: 'CASH', child: Text('Cash')),
-                  DropdownMenuItem(value: 'UPI', child: Text('UPI')),
-                  DropdownMenuItem(value: 'CARD', child: Text('Card')),
-                  DropdownMenuItem(value: 'BANK_TRANSFER', child: Text('Bank transfer')),
-                  DropdownMenuItem(value: 'CHEQUE', child: Text('Cheque')),
+          builder: (ctx, setDialogState) => SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (outstandingAr > 0) ...[
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFEE2E2),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: const Color(0xFFFECACA)),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.account_balance_wallet_outlined, size: 16, color: Color(0xFFB91C1C)),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Outstanding Udhar: ₹${outstandingAr.toStringAsFixed(0)}',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w800,
+                            color: Color(0xFFB91C1C),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 10),
                 ],
-                onChanged: (value) {
-                  if (value != null) setDialogState(() => paymentMethod = value);
-                },
-              ),
-            ],
+                const Text(
+                  '1-TAP AMOUNT',
+                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Color(0xFF64748B)),
+                ),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: quickAmounts.map((amt) {
+                    final isFull = outstandingAr > 0 && amt == outstandingAr.round();
+                    return ActionChip(
+                      visualDensity: VisualDensity.compact,
+                      backgroundColor: isFull ? const Color(0xFFECFDF5) : null,
+                      label: Text(
+                        isFull ? 'Full Due ₹$amt' : '₹$amt',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: isFull ? const Color(0xFF047857) : null,
+                        ),
+                      ),
+                      onPressed: () => setDialogState(() => amountCtl.text = '$amt'),
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: amountCtl,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: 'Collected Amount (₹) *',
+                    prefixText: '₹ ',
+                  ),
+                ),
+                const SizedBox(height: 14),
+                const Text(
+                  'PAYMENT MODE',
+                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Color(0xFF64748B)),
+                ),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: modes.map((m) {
+                    final selected = paymentMethod == m.$1;
+                    return ChoiceChip(
+                      selected: selected,
+                      selectedColor: const Color(0xFF0B6B5E),
+                      label: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            m.$3,
+                            size: 14,
+                            color: selected ? Colors.white : const Color(0xFF475569),
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            m.$2,
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: selected ? Colors.white : const Color(0xFF334155),
+                            ),
+                          ),
+                        ],
+                      ),
+                      onSelected: (_) => setDialogState(() => paymentMethod = m.$1),
+                    );
+                  }).toList(),
+                ),
+              ],
+            ),
           ),
         ),
         actions: [
@@ -612,7 +695,7 @@ class _VisitsScreenState extends ConsumerState<VisitsScreen> {
             onPressed: () => Navigator.pop(ctx, false),
             child: const Text('Cancel'),
           ),
-          FilledButton(
+          FilledButton.icon(
             onPressed: () {
               if (amountCtl.text.trim().isEmpty) {
                 ScaffoldMessenger.of(ctx).showSnackBar(
@@ -622,7 +705,8 @@ class _VisitsScreenState extends ConsumerState<VisitsScreen> {
               }
               Navigator.pop(ctx, true);
             },
-            child: const Text('Record'),
+            icon: const Icon(Icons.check, size: 18),
+            label: const Text('Save Collection'),
           ),
         ],
       ),

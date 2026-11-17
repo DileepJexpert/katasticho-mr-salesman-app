@@ -317,12 +317,72 @@ class _RcpaSheetState extends ConsumerState<RcpaSheet> {
                         ),
                         const SizedBox(height: 20),
 
+                        // 1-Tap Competitor Audit Presets
+                        const Text(
+                          '1-TAP COMPETITOR BENCHMARK PRESETS',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                            color: Color(0xFF0B6B5E),
+                            letterSpacing: 0.4,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Wrap(
+                          spacing: 6,
+                          runSpacing: 6,
+                          children: [
+                            ('24 Orthomoon', 'Shelcal 500', 'Calcium + Vit D3', '145', '60'),
+                            ('Mustmoon Gold', 'Revital H', 'Multivitamin + Ginseng', '310', '45'),
+                            ('Livlaugh-DS', 'Liv.52 DS', 'Hepato-Protective Syrup', '170', '80'),
+                            ('Platoford', 'Caripill', 'Carica Papaya Extract', '420', '35'),
+                            ('Moon Mansosave', 'M2-Tone', 'Uterine Tonic', '165', '50'),
+                            ('Crushconsti', 'Duphalac', 'Lactulose Solution', '210', '40'),
+                          ].map((preset) {
+                            return ActionChip(
+                              visualDensity: VisualDensity.compact,
+                              backgroundColor: const Color(0xFFECFDF5),
+                              side: const BorderSide(color: Color(0xFFA7F3D0)),
+                              label: Text(
+                                '${preset.$2} vs ${preset.$1}',
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                  color: Color(0xFF065F46),
+                                ),
+                              ),
+                              onPressed: () {
+                                setState(() {
+                                  final match = _catalogItems.where((it) {
+                                    final n = it['name']?.toString().toLowerCase() ?? '';
+                                    return n.contains(preset.$1.toLowerCase());
+                                  }).firstOrNull;
+                                  if (match != null) {
+                                    _selectedOurItem = match;
+                                  } else if (_catalogItems.isNotEmpty) {
+                                    _selectedOurItem ??= _catalogItems.first;
+                                  }
+                                  _competitorBrandCtl.text = preset.$2;
+                                  _moleculeCtl.text = preset.$3;
+                                  _competitorPriceCtl.text = preset.$4;
+                                  _monthlyQtyCtl.text = preset.$5;
+                                  if (_remarksCtl.text.isEmpty) {
+                                    _remarksCtl.text =
+                                        'High counter movement for ${preset.$2}; pitched ${preset.$1} margin & bonus scheme.';
+                                  }
+                                });
+                              },
+                            );
+                          }).toList(),
+                        ),
+                        const SizedBox(height: 18),
+
                         // Section Header: Our Product vs Competitor
                         Text(
                           'Brand Comparison',
                           style: theme.textTheme.titleSmall?.copyWith(
                             fontWeight: FontWeight.w700,
-                            color: Colors.teal.shade800,
+                            color: const Color(0xFF0B6B5E),
                           ),
                         ),
                         const SizedBox(height: 8),
@@ -359,7 +419,7 @@ class _RcpaSheetState extends ConsumerState<RcpaSheet> {
                           controller: _competitorBrandCtl,
                           decoration: InputDecoration(
                             labelText: 'Competitor Brand Name *',
-                            hintText: 'e.g. Augmentin 625, Calpol 650, Pan-D',
+                            hintText: 'e.g. Shelcal 500, Liv.52 DS, Revital H',
                             prefixIcon: const Icon(Icons.warning_amber_outlined),
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
@@ -376,7 +436,7 @@ class _RcpaSheetState extends ConsumerState<RcpaSheet> {
                           controller: _moleculeCtl,
                           decoration: InputDecoration(
                             labelText: 'Molecule / Salt Name',
-                            hintText: 'e.g. Amoxicillin + Clavulanate, Paracetamol',
+                            hintText: 'e.g. Calcium + Vit D3, Hepato-Protective',
                             prefixIcon: const Icon(Icons.science_outlined),
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
@@ -427,6 +487,18 @@ class _RcpaSheetState extends ConsumerState<RcpaSheet> {
                               ),
                             ),
                           ],
+                        ),
+                        const SizedBox(height: 8),
+                        Wrap(
+                          spacing: 6,
+                          runSpacing: 4,
+                          children: [20, 35, 50, 80, 100, 150].map((q) {
+                            return ActionChip(
+                              visualDensity: VisualDensity.compact,
+                              label: Text('$q strips/mo', style: const TextStyle(fontSize: 11)),
+                              onPressed: () => setState(() => _monthlyQtyCtl.text = '$q'),
+                            );
+                          }).toList(),
                         ),
                         const SizedBox(height: 14),
 
