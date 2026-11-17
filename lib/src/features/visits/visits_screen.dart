@@ -25,7 +25,9 @@ class _VisitsScreenState extends ConsumerState<VisitsScreen> {
   Map<String, dynamic>? _activeExecution;
   List<Map<String, dynamic>> _visits = [];
   List<Map<String, dynamic>> _assignments = [];
+  Map<String, dynamic>? _attendance;
   String? _error;
+  String _selectedStopFilter = 'ALL';
   final _locationService = LocationService();
   final Set<String> _inFlightCheckIns = {};
 
@@ -68,6 +70,11 @@ class _VisitsScreenState extends ConsumerState<VisitsScreen> {
         }
       } catch (_) {}
 
+      Map<String, dynamic>? attendance;
+      try {
+        attendance = await api.getAttendanceToday();
+      } catch (_) {}
+
       if (executions.isNotEmpty) {
         active = executions[0] as Map<String, dynamic>;
         final execId = active['id']?.toString();
@@ -86,6 +93,12 @@ class _VisitsScreenState extends ConsumerState<VisitsScreen> {
               v['contactPhone'] ??= c['phone'];
               v['medicalCategory'] ??= c['medicalCategory'];
               v['city'] ??= c['billingCity'];
+              v['address'] ??= [c['billingAddressLine1'], c['billingCity']]
+                  .where((x) => x != null && x.toString().isNotEmpty)
+                  .join(', ');
+              v['outstandingAr'] ??= (c['outstandingAr'] as num?)?.toDouble();
+              v['latitude'] ??= (c['latitude'] as num?)?.toDouble();
+              v['longitude'] ??= (c['longitude'] as num?)?.toDouble();
             }
           }
         }
@@ -104,6 +117,7 @@ class _VisitsScreenState extends ConsumerState<VisitsScreen> {
           _activeExecution = active;
           _visits = visits;
           _assignments = assignments;
+          _attendance = attendance;
         });
         _syncPingTracker(active);
       }
@@ -112,6 +126,88 @@ class _VisitsScreenState extends ConsumerState<VisitsScreen> {
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  String _punchTime(String? iso) {
+    final t = iso != null ? DateTime.tryParse(iso)?.toLocal() : null;
+    if (t == null) return '--:--';
+    final period = t.hour >= 12 ? 'PM' : 'AM';
+    final hour = t.hour % 12 == 0 ? 12 : t.hour % 12;
+    final minute = t.minute.toString().padLeft(2, '0');
+    return '$hour:$minute $period';
+  }
+
+  Future<void> _punch({required bool isIn}) async {
+    FieldLocation? loc;
+    try {
+      loc = await _locationService.currentLocation();
+    } catch (_) {}
+    try {
+      final api = ref.read(apiClientProvider);
+      if (isIn) {
+        await api.punchIn(latitude: loc?.latitude, longitude: loc?.longitude);
+        _showSuccess('Punched In — Duty started!');
+      } else {
+        await api.punchOut(latitude: loc?.latitude, longitude: loc?.longitude);
+        _showSuccess('Punched Out — Shift ended!');
+      }
+      await _loadData();
+    } catch (e) {
+      _showError('Punch failed: $e');
+    }
+  }
+
+  void _callContact(String phone) async {
+    final clean = phone.replaceAll(RegExp(r'[^\d+]'), '');
+    if (clean.isEmpty) return;
+    final uri = Uri.parse('tel:$clean');
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri);
+    } else {
+      _showError('Cannot launch dialer for $phone');
+    }
+  }
+
+  void _whatsappContact(String phone, String name) async {
+    final digits = phone.replaceAll(RegExp(r'[^\d]'), '');
+    if (digits.isEmpty) return;
+    final numWithCountry = digits.length == 10 ? '91$digits' : digits;
+    final text = Uri.encodeComponent(
+      'Hello $name, this is ${ref.read(authControllerProvider).session?.fullName ?? 'your Field Rep'} from Moonford Pharmaceuticals.',
+    );
+    final uri = Uri.parse('https://wa.me/$numWithCountry?text=$text');
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
+
+  void _openMapDirections(String name, String address, String city) async {
+    final query = [name, if (address.isNotEmpty) address, if (city.isNotEmpty) city].join(', ');
+    final uri = Uri.parse('https://www.google.com/maps/search/?api=1&query=${Uri.encodeComponent(query)}');
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
+
+  List<Map<String, dynamic>> get _filteredVisits {
+    if (_selectedStopFilter == 'ALL') return _visits;
+    if (_selectedStopFilter == 'DOCTOR') {
+      return _visits.where((v) {
+        final cat = v['medicalCategory']?.toString().toUpperCase();
+        return cat == 'DOCTOR' || cat == 'PHYSICIAN';
+      }).toList();
+    }
+    if (_selectedStopFilter == 'CHEMIST') {
+      return _visits.where((v) {
+        final cat = v['medicalCategory']?.toString().toUpperCase();
+        return cat == 'CHEMIST' || cat == 'RETAILER' || cat == 'PHARMACY';
+      }).toList();
+    }
+    if (_selectedStopFilter == 'PENDING') {
+      return _visits
+          .where((v) => v['status'] == 'PLANNED' || v['status'] == 'IN_PROGRESS')
+          .toList();
+    }
+    if (_selectedStopFilter == 'COMPLETED') {
+      return _visits.where((v) => v['status'] == 'COMPLETED').toList();
+    }
+    return _visits;
   }
 
   /// Keeps the GPS breadcrumb tracker aligned with the route state:
@@ -911,7 +1007,7 @@ class _VisitsScreenState extends ConsumerState<VisitsScreen> {
 
     if (session?.isDemo == true) {
       return const PageScaffold(
-        title: 'Visits',
+        title: 'My Route',
         subtitle: 'Demo mode — login to see real visits.',
         children: [],
       );
@@ -922,141 +1018,507 @@ class _VisitsScreenState extends ConsumerState<VisitsScreen> {
     return RefreshIndicator(
       onRefresh: _loadData,
       child: PageScaffold(
-        title: 'Visits',
-        subtitle: 'Geo-verified check-ins. GPS captured on every check-in/out.',
+        title: 'My Daily Route',
+        subtitle: 'Geo-verified customer stops, chemist POBs & detailing cockpit.',
         children: [
+          _buildAttendanceBar(theme),
+          const SizedBox(height: 12),
           if (_error != null) ...[
             Card(
               color: Colors.red.shade50,
               child: Padding(
                 padding: const EdgeInsets.all(14),
-                child: Text(
-                  _error!,
-                  style: TextStyle(color: Colors.red.shade700),
-                ),
-              ),
-            ),
-            const SizedBox(height: 12),
-          ],
-
-          // Route status bar
-          if (_activeExecution != null) ...[
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(14),
                 child: Row(
                   children: [
+                    Icon(Icons.error_outline, color: Colors.red.shade700),
+                    const SizedBox(width: 8),
                     Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            _activeExecution!['routeName']?.toString() ??
-                                'Today\'s Route',
-                            style: theme.textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            'Status: ${execStatus.replaceAll('_', ' ')}',
-                            style: theme.textTheme.bodySmall,
-                          ),
-                        ],
+                      child: Text(
+                        _error!,
+                        style: TextStyle(color: Colors.red.shade700),
                       ),
                     ),
-                    if (execStatus == 'PLANNED')
-                      FilledButton(
-                        onPressed: _startRoute,
-                        child: const Text('Start'),
-                      ),
-                    if (execStatus == 'IN_PROGRESS')
-                      FilledButton(
-                        onPressed: _completeRoute,
-                        child: const Text('Complete'),
-                      ),
                   ],
                 ),
               ),
             ),
             const SizedBox(height: 12),
-          ] else ...[
-            if (_assignments.isNotEmpty) ...[
-              Card(
-                color: const Color(0xFFECFDF5),
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          const Icon(Icons.route, color: Color(0xFF059669)),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              _assignments.first['routeName']?.toString() ??
-                                  'Assigned Daily Beat',
-                              style: theme.textTheme.titleMedium?.copyWith(
-                                fontWeight: FontWeight.bold,
-                                color: const Color(0xFF065F46),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        'Ready to begin today\'s customer calls. Tap below to start today\'s field beat and load your scheduled stops.',
-                        style: TextStyle(
-                          color: Colors.grey.shade700,
-                          fontSize: 13,
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-                      FilledButton.icon(
-                        style: FilledButton.styleFrom(
-                          backgroundColor: const Color(0xFF059669),
-                        ),
-                        icon: const Icon(Icons.play_arrow, size: 18),
-                        label: const Text('Start Today\'s Beat Run'),
-                        onPressed: () =>
-                            _startNewAssignedRoute(_assignments.first),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-            ] else ...[
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(14),
-                  child: Row(
-                    children: [
-                      Icon(Icons.event_busy, color: Colors.grey.shade400),
-                      const SizedBox(width: 10),
-                      const Expanded(
-                        child: Text('No route execution or route assignment for today.'),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-            ],
           ],
-
-          // Visits list
-          if (_visits.isEmpty && _activeExecution != null)
-            const Card(
+          if (_activeExecution != null)
+            _buildRoutePulseCard(theme, execStatus)
+          else if (_assignments.isNotEmpty)
+            _buildStartRouteBanner(theme)
+          else
+            Card(
+              elevation: 0,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+                side: BorderSide(color: Colors.grey.shade200),
+              ),
               child: Padding(
-                padding: EdgeInsets.all(14),
-                child: Text('No visits in this route.'),
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  children: [
+                    Icon(Icons.event_busy_rounded, size: 40, color: Colors.grey.shade400),
+                    const SizedBox(height: 10),
+                    Text(
+                      'No Active Route for Today',
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'No route run was scheduled or started for today. Check your monthly Tour Plan or pull down to refresh.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          const SizedBox(height: 14),
+          if (_visits.isNotEmpty) ...[
+            _buildFilterChips(theme),
+            const SizedBox(height: 12),
+          ],
+          if (_filteredVisits.isEmpty && _activeExecution != null)
+            Card(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+                side: BorderSide(color: Colors.grey.shade200),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Center(
+                  child: Text(
+                    _visits.isEmpty
+                        ? 'No stops mapped to this route.'
+                        : 'No stops matching "$_selectedStopFilter" filter.',
+                    style: TextStyle(color: Colors.grey.shade600),
+                  ),
+                ),
               ),
             )
           else
-            ..._visits.map((visit) => _buildVisitCard(visit, theme)),
+            ..._filteredVisits.map((visit) => _buildVisitCard(visit, theme)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAttendanceBar(ThemeData theme) {
+    final att = _attendance;
+    final punchedIn = att?['punchedIn'] == true;
+    final punchedOut = att?['punchedOut'] == true;
+    final inTime = _punchTime(att?['punchInTime']?.toString());
+    final outTime = _punchTime(att?['punchOutTime']?.toString());
+
+    Color bg;
+    Color border;
+    Widget statusDot;
+    String statusText;
+    Widget actionBtn;
+
+    if (punchedIn && !punchedOut) {
+      bg = const Color(0xFFF0FDF4);
+      border = const Color(0xFFBBF7D0);
+      statusDot = Container(
+        width: 10,
+        height: 10,
+        decoration: const BoxDecoration(
+          color: Color(0xFF16A34A),
+          shape: BoxShape.circle,
+        ),
+      );
+      statusText = 'ON DUTY · Punch In: $inTime';
+      actionBtn = OutlinedButton.icon(
+        style: OutlinedButton.styleFrom(
+          visualDensity: VisualDensity.compact,
+          foregroundColor: const Color(0xFFDC2626),
+          side: const BorderSide(color: Color(0xFFFCA5A5)),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        ),
+        onPressed: () => _punch(isIn: false),
+        icon: const Icon(Icons.logout, size: 14),
+        label: const Text('End Shift', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+      );
+    } else if (punchedOut) {
+      bg = const Color(0xFFF8FAFC);
+      border = const Color(0xFFE2E8F0);
+      statusDot = Container(
+        width: 10,
+        height: 10,
+        decoration: BoxDecoration(
+          color: Colors.grey.shade400,
+          shape: BoxShape.circle,
+        ),
+      );
+      statusText = 'SHIFT CLOSED · In: $inTime | Out: $outTime';
+      actionBtn = const Chip(
+        label: Text('Shift Completed', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey)),
+        backgroundColor: Color(0xFFF1F5F9),
+        visualDensity: VisualDensity.compact,
+      );
+    } else {
+      bg = const Color(0xFFFFFBEB);
+      border = const Color(0xFFFDE68A);
+      statusDot = Container(
+        width: 10,
+        height: 10,
+        decoration: const BoxDecoration(
+          color: Color(0xFFD97706),
+          shape: BoxShape.circle,
+        ),
+      );
+      statusText = 'NOT PUNCHED IN · Mark duty attendance';
+      actionBtn = FilledButton.icon(
+        style: FilledButton.styleFrom(
+          visualDensity: VisualDensity.compact,
+          backgroundColor: const Color(0xFF0B6B5E),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        ),
+        onPressed: () => _punch(isIn: true),
+        icon: const Icon(Icons.fingerprint, size: 16),
+        label: const Text('Punch In', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: border),
+      ),
+      child: Row(
+        children: [
+          statusDot,
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              statusText,
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF1E293B),
+              ),
+            ),
+          ),
+          actionBtn,
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRoutePulseCard(ThemeData theme, String execStatus) {
+    final routeName = _activeExecution!['routeName']?.toString() ?? 'Daily Beat Run';
+    final completedStops = _visits.where((v) => v['status'] == 'COMPLETED').length;
+    final totalStops = _visits.length;
+    final percent = totalStops > 0 ? (completedStops / totalStops) : 0.0;
+
+    double totalOrders = 0.0;
+    double totalCollections = 0.0;
+    for (final v in _visits) {
+      totalOrders += (v['orderValue'] as num?)?.toDouble() ?? 0.0;
+      totalCollections += (v['collectionAmount'] as num?)?.toDouble() ?? 0.0;
+    }
+
+    Color statusColor = const Color(0xFF0B6B5E);
+    String statusLabel = 'IN PROGRESS';
+    if (execStatus == 'PLANNED') {
+      statusColor = const Color(0xFFD97706);
+      statusLabel = 'PLANNED';
+    } else if (execStatus == 'COMPLETED') {
+      statusColor = const Color(0xFF2563EB);
+      statusLabel = 'COMPLETED';
+    }
+
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: const BorderSide(color: Color(0xFFE2E8F0)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        routeName,
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w800,
+                          color: const Color(0xFF0F172A),
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        '$completedStops of $totalStops stops completed · ${(percent * 100).toInt()}% progress',
+                        style: TextStyle(
+                          color: Colors.grey.shade600,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: statusColor.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: statusColor.withValues(alpha: 0.3)),
+                  ),
+                  child: Text(
+                    statusLabel,
+                    style: TextStyle(
+                      color: statusColor,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(4),
+              child: LinearProgressIndicator(
+                value: percent,
+                minHeight: 6,
+                backgroundColor: const Color(0xFFE2E8F0),
+                valueColor: AlwaysStoppedAnimation<Color>(
+                  percent >= 1.0 ? const Color(0xFF10B981) : const Color(0xFF0B6B5E),
+                ),
+              ),
+            ),
+            const SizedBox(height: 14),
+            Container(
+              padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF8FAFC),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFFF1F5F9)),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('POB Orders', style: TextStyle(fontSize: 11, color: Color(0xFF64748B))),
+                        const SizedBox(height: 2),
+                        Text(
+                          '₹${totalOrders.toStringAsFixed(0)}',
+                          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Color(0xFF0B6B5E)),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Container(width: 1, height: 28, color: const Color(0xFFE2E8F0)),
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.only(left: 12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Collections', style: TextStyle(fontSize: 11, color: Color(0xFF64748B))),
+                          const SizedBox(height: 2),
+                          Text(
+                            '₹${totalCollections.toStringAsFixed(0)}',
+                            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Color(0xFF2563EB)),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  Container(width: 1, height: 28, color: const Color(0xFFE2E8F0)),
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.only(left: 12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Coverage', style: TextStyle(fontSize: 11, color: Color(0xFF64748B))),
+                          const SizedBox(height: 2),
+                          Text(
+                            '$completedStops/$totalStops',
+                            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (execStatus == 'PLANNED') ...[
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFF0B6B5E),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  icon: const Icon(Icons.play_arrow, size: 18),
+                  label: const Text('Start Route Run', style: TextStyle(fontWeight: FontWeight.bold)),
+                  onPressed: _startRoute,
+                ),
+              ),
+            ] else if (execStatus == 'IN_PROGRESS') ...[
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: const Color(0xFF0B6B5E),
+                    side: const BorderSide(color: Color(0xFF0B6B5E)),
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  icon: const Icon(Icons.check_circle_outline, size: 18),
+                  label: const Text('Complete Today\'s Beat Run', style: TextStyle(fontWeight: FontWeight.bold)),
+                  onPressed: _completeRoute,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStartRouteBanner(ThemeData theme) {
+    final assignment = _assignments.first;
+    final routeName = assignment['routeName']?.toString() ?? 'Assigned Daily Beat';
+    final dayOfWeek = assignment['dayOfWeek']?.toString() ?? 'Today';
+    final frequency = assignment['frequency']?.toString() ?? 'WEEKLY';
+
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF0FDF4),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFA7F3D0)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF10B981).withValues(alpha: 0.15),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.alt_route_rounded, color: Color(0xFF047857), size: 24),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      routeName,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w800,
+                        color: const Color(0xFF065F46),
+                      ),
+                    ),
+                    Text(
+                      'Beat Schedule: $dayOfWeek · $frequency',
+                      style: const TextStyle(color: Color(0xFF047857), fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'Ready to start today\'s field beat? Tap below to initialize customer stops, doctor visual aids, and chemist POB booking.',
+            style: TextStyle(color: Colors.grey.shade700, fontSize: 13),
+          ),
+          const SizedBox(height: 14),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFF0B6B5E),
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              icon: const Icon(Icons.play_arrow_rounded, size: 20),
+              label: const Text('Start Today\'s Beat Run', style: TextStyle(fontWeight: FontWeight.bold)),
+              onPressed: () => _startNewAssignedRoute(assignment),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFilterChips(ThemeData theme) {
+    final docCount = _visits.where((v) {
+      final c = v['medicalCategory']?.toString().toUpperCase();
+      return c == 'DOCTOR' || c == 'PHYSICIAN';
+    }).length;
+    final chmCount = _visits.where((v) {
+      final c = v['medicalCategory']?.toString().toUpperCase();
+      return c == 'CHEMIST' || c == 'RETAILER' || c == 'PHARMACY';
+    }).length;
+    final pendingCount = _visits.where((v) => v['status'] == 'PLANNED' || v['status'] == 'IN_PROGRESS').length;
+    final doneCount = _visits.where((v) => v['status'] == 'COMPLETED').length;
+
+    Widget chip(String key, String label, int count) {
+      final isSel = _selectedStopFilter == key;
+      return Padding(
+        padding: const EdgeInsets.only(right: 8),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(20),
+          onTap: () => setState(() => _selectedStopFilter = key),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: isSel ? const Color(0xFF0B6B5E) : const Color(0xFFF1F5F9),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(
+                color: isSel ? const Color(0xFF0B6B5E) : const Color(0xFFE2E8F0),
+              ),
+            ),
+            child: Text(
+              '$label ($count)',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: isSel ? FontWeight.w700 : FontWeight.w600,
+                color: isSel ? Colors.white : const Color(0xFF475569),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          chip('ALL', 'All Stops', _visits.length),
+          chip('DOCTOR', 'Doctors', docCount),
+          chip('CHEMIST', 'Chemists', chmCount),
+          chip('PENDING', 'Pending', pendingCount),
+          chip('COMPLETED', 'Completed', doneCount),
         ],
       ),
     );
@@ -1077,50 +1539,89 @@ class _VisitsScreenState extends ConsumerState<VisitsScreen> {
     final orderValue = (visit['orderValue'] as num?)?.toDouble();
     final collectionAmount = (visit['collectionAmount'] as num?)?.toDouble();
     final skipReason = visit['skipReason']?.toString();
-    final category = visit['medicalCategory']?.toString().toUpperCase();
+    final category = visit['medicalCategory']?.toString().toUpperCase() ?? '';
+    final isDoctor = category == 'DOCTOR' || category == 'PHYSICIAN';
     final city = visit['city']?.toString() ?? '';
+    final address = visit['address']?.toString() ?? '';
     final phone = visit['contactPhone']?.toString() ?? '';
+    final outstandingAr = (visit['outstandingAr'] as num?)?.toDouble() ?? 0.0;
 
     Color statusColor;
     String statusLabel;
     switch (status) {
       case 'IN_PROGRESS':
-        statusColor = Colors.orange;
+        statusColor = const Color(0xFFD97706);
         statusLabel = 'In Visit';
       case 'COMPLETED':
-        statusColor = Colors.green;
+        statusColor = const Color(0xFF16A34A);
         statusLabel = 'Done';
       case 'SKIPPED':
-        statusColor = Colors.red;
+        statusColor = const Color(0xFFDC2626);
         statusLabel = 'Skipped';
       default:
-        statusColor = Colors.blue;
+        statusColor = const Color(0xFF2563EB);
         statusLabel = 'Planned';
     }
 
+    final avatarBg = isDoctor ? const Color(0xFFF3E8FF) : const Color(0xFFCCFBF1);
+    final avatarColor = isDoctor ? const Color(0xFF7E22CE) : const Color(0xFF0F766E);
+    final avatarIcon = isDoctor ? Icons.medical_services_outlined : Icons.storefront_outlined;
+
     return Card(
+      elevation: 0,
+      margin: const EdgeInsets.only(bottom: 12),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(
+          color: status == 'IN_PROGRESS'
+              ? const Color(0xFF0B6B5E)
+              : const Color(0xFFE2E8F0),
+          width: status == 'IN_PROGRESS' ? 1.5 : 1.0,
+        ),
+      ),
       child: Padding(
         padding: const EdgeInsets.all(14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                if (seq != null) ...[
-                  CircleAvatar(
-                    radius: 14,
-                    backgroundColor: statusColor.withValues(alpha: 0.15),
-                    child: Text(
-                      '$seq',
-                      style: TextStyle(
-                        color: statusColor,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
+                Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: avatarBg,
+                        borderRadius: BorderRadius.circular(12),
                       ),
+                      child: Icon(avatarIcon, color: avatarColor, size: 22),
                     ),
-                  ),
-                  const SizedBox(width: 10),
-                ],
+                    if (seq != null)
+                      Positioned(
+                        top: -4,
+                        left: -4,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF0F172A),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Text(
+                            '$seq',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(width: 12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -1129,54 +1630,151 @@ class _VisitsScreenState extends ConsumerState<VisitsScreen> {
                         contactName,
                         style: theme.textTheme.titleMedium?.copyWith(
                           fontWeight: FontWeight.w700,
+                          fontSize: 15,
+                          color: const Color(0xFF0F172A),
                         ),
                       ),
-                      if (category != null || city.isNotEmpty || phone.isNotEmpty) ...[
-                        const SizedBox(height: 2),
-                        Text(
-                          [
-                            if (category != null) category,
-                            if (city.isNotEmpty) city,
-                            if (phone.isNotEmpty) phone,
-                          ].join(' · '),
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: Colors.grey.shade600,
-                            fontWeight: FontWeight.w500,
-                          ),
+                      const SizedBox(height: 2),
+                      Text(
+                        [
+                          if (category.isNotEmpty) category,
+                          if (city.isNotEmpty) city,
+                        ].join(' · '),
+                        style: TextStyle(
+                          color: Colors.grey.shade600,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
                         ),
-                      ],
+                      ),
                     ],
                   ),
                 ),
-                Chip(
-                  label: Text(
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: statusColor.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
                     statusLabel,
                     style: TextStyle(
                       color: statusColor,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
-                  backgroundColor: statusColor.withValues(alpha: 0.1),
-                  side: BorderSide.none,
                 ),
               ],
             ),
 
-            if (visit['jointVisitUserId'] != null || visit['jointWith'] != null) ...[
-              const SizedBox(height: 6),
+            if (phone.isNotEmpty || address.isNotEmpty || outstandingAr > 0) ...[
+              const SizedBox(height: 10),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: const Color(0xFFF1F5F9)),
+                ),
+                child: Row(
+                  children: [
+                    if (phone.isNotEmpty) ...[
+                      InkWell(
+                        onTap: () => _callContact(phone),
+                        borderRadius: BorderRadius.circular(6),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFE0F2FE),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.phone, size: 13, color: Color(0xFF0369A1)),
+                              SizedBox(width: 4),
+                              Text('Call', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF0369A1))),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      InkWell(
+                        onTap: () => _whatsappContact(phone, contactName),
+                        borderRadius: BorderRadius.circular(6),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFDCFCE7),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.chat_bubble_outline, size: 13, color: Color(0xFF15803D)),
+                              SizedBox(width: 4),
+                              Text('WhatsApp', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF15803D))),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                    ],
+                    InkWell(
+                      onTap: () => _openMapDirections(contactName, address, city),
+                      borderRadius: BorderRadius.circular(6),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF1F5F9),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.directions, size: 13, color: Color(0xFF475569)),
+                            SizedBox(width: 4),
+                            Text('Maps', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF475569))),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const Spacer(),
+                    if (!isDoctor && outstandingAr > 0)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFEE2E2),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          'Udhar: ₹${outstandingAr.toStringAsFixed(0)}',
+                          style: const TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFFB91C1C),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+
+            if (visit['jointVisitUserId'] != null || visit['jointWith'] != null) ...[
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
                   color: const Color(0xFFEEF2FF),
-                  borderRadius: BorderRadius.circular(6),
+                  borderRadius: BorderRadius.circular(8),
                   border: Border.all(color: const Color(0xFFC7D2FE)),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     const Icon(Icons.groups, size: 14, color: Color(0xFF4F46E5)),
-                    const SizedBox(width: 4),
+                    const SizedBox(width: 6),
                     Text(
                       visit['jointWith'] != null
                           ? 'Joint Visit: ${visit['jointWith']} (${visit['managerDesignation'] ?? 'ASM'})'
@@ -1192,146 +1790,279 @@ class _VisitsScreenState extends ConsumerState<VisitsScreen> {
               ),
             ],
 
-            if (checkInTime != null) ...[
-              const SizedBox(height: 6),
-              Text('Check-in: $checkInTime', style: theme.textTheme.bodySmall),
-            ],
-            if (checkOutTime != null)
-              Text(
-                'Check-out: $checkOutTime',
-                style: theme.textTheme.bodySmall,
-              ),
-            if (orderValue != null && orderValue > 0) ...[
-              const SizedBox(height: 4),
-              Text(
-                'Order: ₹${orderValue.toStringAsFixed(0)}',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
-            if (collectionAmount != null && collectionAmount > 0)
-              Text(
-                'Collection: ₹${collectionAmount.toStringAsFixed(0)}',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            if (status == 'SKIPPED' && skipReason != null) ...[
-              const SizedBox(height: 4),
-              Text(
-                'Reason: $skipReason',
-                style: theme.textTheme.bodySmall?.copyWith(color: Colors.red),
+            if (checkInTime != null || (orderValue != null && orderValue > 0) || (collectionAmount != null && collectionAmount > 0)) ...[
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 6,
+                runSpacing: 4,
+                children: [
+                  if (checkInTime != null)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF1F5F9),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.access_time, size: 12, color: Color(0xFF64748B)),
+                          const SizedBox(width: 4),
+                          Text(
+                            checkOutTime != null
+                                ? 'In: ${_punchTime(checkInTime)} · Out: ${_punchTime(checkOutTime)}'
+                                : 'In: ${_punchTime(checkInTime)}',
+                            style: const TextStyle(fontSize: 11, color: Color(0xFF475569)),
+                          ),
+                        ],
+                      ),
+                    ),
+                  if (orderValue != null && orderValue > 0)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFECFDF5),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.shopping_bag_outlined, size: 12, color: Color(0xFF059669)),
+                          const SizedBox(width: 4),
+                          Text('Order: ₹${orderValue.toStringAsFixed(0)}', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF059669))),
+                        ],
+                      ),
+                    ),
+                  if (collectionAmount != null && collectionAmount > 0)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFEFF6FF),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.payments_outlined, size: 12, color: Color(0xFF2563EB)),
+                          const SizedBox(width: 4),
+                          Text('Collected: ₹${collectionAmount.toStringAsFixed(0)}', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF2563EB))),
+                        ],
+                      ),
+                    ),
+                ],
               ),
             ],
 
-            const SizedBox(height: 10),
-            Wrap(
-              spacing: 8,
-              runSpacing: 6,
-              children: [
-                if (status == 'PLANNED') ...[
-                  FilledButton.icon(
-                    onPressed: _inFlightCheckIns.contains(visitId)
-                        ? null
-                        : () => _checkIn(visitId),
-                    icon: _inFlightCheckIns.contains(visitId)
-                        ? const SizedBox(
-                            width: 14,
-                            height: 14,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.white,
-                            ),
-                          )
-                        : const Icon(Icons.location_on, size: 18),
-                    label: Text(
-                      _inFlightCheckIns.contains(visitId)
-                          ? 'Checking in…'
-                          : 'Check In',
+            if (status == 'SKIPPED' && skipReason != null) ...[
+              const SizedBox(height: 6),
+              Text(
+                'Skipped Reason: $skipReason',
+                style: const TextStyle(color: Color(0xFFDC2626), fontSize: 12, fontWeight: FontWeight.w500),
+              ),
+            ],
+
+            const SizedBox(height: 12),
+            if (status == 'PLANNED') ...[
+              Row(
+                children: [
+                  Expanded(
+                    child: FilledButton.icon(
+                      style: FilledButton.styleFrom(
+                        backgroundColor: const Color(0xFF0B6B5E),
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                      onPressed: _inFlightCheckIns.contains(visitId)
+                          ? null
+                          : () => _checkIn(visitId),
+                      icon: _inFlightCheckIns.contains(visitId)
+                          ? const SizedBox(
+                              width: 14,
+                              height: 14,
+                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                            )
+                          : const Icon(Icons.location_on, size: 16),
+                      label: Text(
+                        _inFlightCheckIns.contains(visitId) ? 'Checking in…' : 'Check In at Location',
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
                     ),
                   ),
+                  const SizedBox(width: 8),
                   OutlinedButton(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.grey.shade700,
+                      side: BorderSide(color: Colors.grey.shade300),
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
                     onPressed: () => _skipVisit(visitId),
                     child: const Text('Skip'),
                   ),
                 ],
-                if (status == 'IN_PROGRESS') ...[
-                  FilledButton.icon(
-                    onPressed: () => _checkOut(visitId),
-                    icon: const Icon(Icons.logout, size: 18),
-                    label: const Text('Check Out'),
+              ),
+            ],
+
+            if (status == 'IN_PROGRESS') ...[
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFF0B6B5E),
+                    padding: const EdgeInsets.symmetric(vertical: 11),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                   ),
+                  onPressed: () => _checkOut(visitId),
+                  icon: const Icon(Icons.check_circle, size: 18),
+                  label: const Text('Check Out & Finish Call', style: TextStyle(fontWeight: FontWeight.bold)),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 6,
+                children: [
+                  if (isDoctor) ...[
+                    FilledButton.tonalIcon(
+                      style: FilledButton.styleFrom(
+                        backgroundColor: const Color(0xFFF3E8FF),
+                        foregroundColor: const Color(0xFF7E22CE),
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                      onPressed: () => _logDetailing(visitId),
+                      icon: const Icon(Icons.medication, size: 16),
+                      label: const Text('Detailing & Samples', style: TextStyle(fontWeight: FontWeight.bold)),
+                    ),
+                    OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                      onPressed: () => _showAids(visitId),
+                      icon: const Icon(Icons.auto_stories, size: 16),
+                      label: const Text('Visual Aids'),
+                    ),
+                    OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                      onPressed: () => _openRcpa(visit),
+                      icon: const Icon(Icons.analytics_outlined, size: 16),
+                      label: const Text('RCPA Audit'),
+                    ),
+                    OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                      onPressed: () => _recordJointVisit(visitId),
+                      icon: const Icon(Icons.groups_outlined, size: 16),
+                      label: const Text('Joint Call'),
+                    ),
+                  ] else ...[
+                    FilledButton.tonalIcon(
+                      style: FilledButton.styleFrom(
+                        backgroundColor: const Color(0xFFCCFBF1),
+                        foregroundColor: const Color(0xFF0F766E),
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                      onPressed: () => _showOrderOptions(visit),
+                      icon: const Icon(Icons.shopping_bag, size: 16),
+                      label: const Text('Book POB Order', style: TextStyle(fontWeight: FontWeight.bold)),
+                    ),
+                    FilledButton.tonalIcon(
+                      style: FilledButton.styleFrom(
+                        backgroundColor: const Color(0xFFEFF6FF),
+                        foregroundColor: const Color(0xFF1D4ED8),
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                      onPressed: () => _recordCollection(visitId),
+                      icon: const Icon(Icons.payments, size: 16),
+                      label: const Text('Collect Cash/UPI', style: TextStyle(fontWeight: FontWeight.bold)),
+                    ),
+                    OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                      onPressed: () => _openRcpa(visit),
+                      icon: const Icon(Icons.analytics_outlined, size: 16),
+                      label: const Text('RCPA'),
+                    ),
+                    OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                      onPressed: () => _recordPod(visit),
+                      icon: const Icon(Icons.assignment_turned_in, size: 16),
+                      label: const Text('POD'),
+                    ),
+                    OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                      onPressed: () => _recordJointVisit(visitId),
+                      icon: const Icon(Icons.groups_outlined, size: 16),
+                      label: const Text('Joint'),
+                    ),
+                  ],
+                ],
+              ),
+            ],
+
+            if (status == 'COMPLETED') ...[
+              Wrap(
+                spacing: 8,
+                runSpacing: 6,
+                children: [
+                  if (!isDoctor) ...[
+                    OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                      onPressed: () => _showOrderOptions(visit),
+                      icon: const Icon(Icons.shopping_bag_outlined, size: 15),
+                      label: const Text('Order / POB', style: TextStyle(fontSize: 12)),
+                    ),
+                    OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                      onPressed: () => _recordCollection(visitId),
+                      icon: const Icon(Icons.payments_outlined, size: 15),
+                      label: const Text('Collect', style: TextStyle(fontSize: 12)),
+                    ),
+                  ] else ...[
+                    OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                      onPressed: () => _logDetailing(visitId),
+                      icon: const Icon(Icons.medication_outlined, size: 15),
+                      label: const Text('Detailing', style: TextStyle(fontSize: 12)),
+                    ),
+                  ],
                   OutlinedButton.icon(
-                    onPressed: () => _showOrderOptions(visit),
-                    icon: const Icon(Icons.shopping_cart, size: 18),
-                    label: const Text('Order'),
-                  ),
-                  OutlinedButton.icon(
-                    onPressed: () => _recordCollection(visitId),
-                    icon: const Icon(Icons.payments, size: 18),
-                    label: const Text('Collect'),
-                  ),
-                  OutlinedButton.icon(
-                    onPressed: () => _logDetailing(visitId),
-                    icon: const Icon(Icons.medication, size: 18),
-                    label: const Text('Activity'),
-                  ),
-                  OutlinedButton.icon(
-                    onPressed: () => _showAids(visitId),
-                    icon: const Icon(Icons.auto_stories, size: 18),
-                    label: const Text('Aids'),
-                  ),
-                  OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
                     onPressed: () => _openRcpa(visit),
-                    icon: const Icon(Icons.analytics_outlined, size: 18),
-                    label: const Text('RCPA'),
-                  ),
-                  OutlinedButton.icon(
-                    onPressed: () => _recordJointVisit(visitId),
-                    icon: const Icon(Icons.groups_outlined, size: 18),
-                    label: const Text('Joint'),
-                  ),
-                  OutlinedButton.icon(
-                    onPressed: () => _recordPod(visit),
-                    icon: const Icon(Icons.assignment_turned_in, size: 18),
-                    label: const Text('POD'),
+                    icon: const Icon(Icons.analytics_outlined, size: 15),
+                    label: const Text('RCPA', style: TextStyle(fontSize: 12)),
                   ),
                 ],
-                if (status == 'COMPLETED') ...[
-                  OutlinedButton.icon(
-                    onPressed: () => _showOrderOptions(visit),
-                    icon: const Icon(Icons.shopping_cart, size: 18),
-                    label: const Text('Order'),
-                  ),
-                  OutlinedButton.icon(
-                    onPressed: () => _recordCollection(visitId),
-                    icon: const Icon(Icons.payments, size: 18),
-                    label: const Text('Collect'),
-                  ),
-                  OutlinedButton.icon(
-                    onPressed: () => _openRcpa(visit),
-                    icon: const Icon(Icons.analytics_outlined, size: 18),
-                    label: const Text('RCPA'),
-                  ),
-                  OutlinedButton.icon(
-                    onPressed: () => _recordJointVisit(visitId),
-                    icon: const Icon(Icons.groups_outlined, size: 18),
-                    label: const Text('Joint'),
-                  ),
-                  OutlinedButton.icon(
-                    onPressed: () => _logDetailing(visitId),
-                    icon: const Icon(Icons.medication, size: 18),
-                    label: const Text('Activity'),
-                  ),
-                  OutlinedButton.icon(
-                    onPressed: () => _recordPod(visit),
-                    icon: const Icon(Icons.assignment_turned_in, size: 18),
-                    label: const Text('POD'),
-                  ),
-                ],
-              ],
-            ),
+              ),
+            ],
           ],
         ),
       ),

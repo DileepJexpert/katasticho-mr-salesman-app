@@ -84,6 +84,7 @@ class _OrderBuilderScreenState extends ConsumerState<OrderBuilderScreen> {
     super.initState();
     _searchCtl.addListener(_onSearchChanged);
     _loadStockists();
+    _runSearch('');
   }
 
   @override
@@ -130,16 +131,7 @@ class _OrderBuilderScreenState extends ConsumerState<OrderBuilderScreen> {
   void _onSearchChanged() {
     _debounce?.cancel();
     final query = _searchCtl.text.trim();
-    if (query.isEmpty) {
-      setState(() {
-        _results = [];
-        _searching = false;
-        _searchError = null;
-      });
-      return;
-    }
-    setState(() {});
-    _debounce = Timer(const Duration(milliseconds: 400), () {
+    _debounce = Timer(const Duration(milliseconds: 300), () {
       _runSearch(query);
     });
   }

@@ -3,7 +3,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/location/location_service.dart';
 import '../auth/auth_controller.dart';
+import '../collections/collections_screen.dart';
+import '../dayclose/day_close_screen.dart';
+import '../expenses/expenses_screen.dart';
+import '../mr/dcr_screen.dart';
+import '../mr/tour_plan_screen.dart';
 import '../shared/field_widgets.dart';
+import '../van/van_stock_screen.dart';
 
 class TodayDashboardScreen extends ConsumerStatefulWidget {
   const TodayDashboardScreen({super.key});
@@ -492,7 +498,117 @@ class _TodayDashboardScreenState extends ConsumerState<TodayDashboardScreen> {
               );
             }),
           ],
+
+          const SizedBox(height: 24),
+          Text(
+            'Field Operations & Tools',
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 8),
+          _buildToolTile(
+            theme,
+            icon: Icons.payments_outlined,
+            color: const Color(0xFF059669),
+            title: 'Collections Ledger',
+            subtitle: 'Record & review customer cash & UPI receipts',
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const CollectionsScreen()),
+            ),
+          ),
+          _buildToolTile(
+            theme,
+            icon: Icons.receipt_long_outlined,
+            color: const Color(0xFFD97706),
+            title: 'Daily Expenses',
+            subtitle: 'Submit travel, fuel, food & lodging claims with receipts',
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const ExpensesScreen()),
+            ),
+          ),
+          _buildToolTile(
+            theme,
+            icon: Icons.nightlight_round,
+            color: const Color(0xFF7C3AED),
+            title: 'End of Day Close',
+            subtitle: 'Cash reconciliation, collection handover & route settlement',
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const DayCloseScreen()),
+            ),
+          ),
+          _buildToolTile(
+            theme,
+            icon: Icons.assignment_outlined,
+            color: const Color(0xFF0284C7),
+            title: 'Daily Call Report (DCR)',
+            subtitle: 'Doctor coverage, sampling summary & field submission',
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const DcrScreen()),
+            ),
+          ),
+          _buildToolTile(
+            theme,
+            icon: Icons.calendar_month_outlined,
+            color: const Color(0xFF4F46E5),
+            title: 'Tour Plan & Beat Calendar',
+            subtitle: 'View and manage monthly customer visit schedules',
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const TourPlanScreen()),
+            ),
+          ),
+          _buildToolTile(
+            theme,
+            icon: Icons.local_shipping_outlined,
+            color: const Color(0xFF0D9488),
+            title: 'Van Stock & Warehouses',
+            subtitle: 'Inspect mobile inventory and vehicle stock batches',
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const VanStockScreen()),
+            ),
+          ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildToolTile(
+    ThemeData theme, {
+    required IconData icon,
+    required Color color,
+    required String title,
+    required String subtitle,
+    required VoidCallback onTap,
+  }) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: ListTile(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+        leading: Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Icon(icon, color: color, size: 22),
+        ),
+        title: Text(
+          title,
+          style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+        ),
+        subtitle: Text(
+          subtitle,
+          style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+        ),
+        trailing: const Icon(Icons.chevron_right, size: 20, color: Colors.grey),
+        onTap: onTap,
       ),
     );
   }

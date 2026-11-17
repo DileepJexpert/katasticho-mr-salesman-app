@@ -299,18 +299,9 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen>
     // Non-Pharma FMCG/Distributor Salesman view (Single clean Orders view)
     if (!isPharma) {
       return Scaffold(
-        appBar: AppBar(
-          title: const Text('Orders'),
-          actions: [
-            IconButton(
-              icon: const Icon(Icons.refresh),
-              onPressed: _loadAll,
-            ),
-          ],
-        ),
         floatingActionButton: FloatingActionButton.extended(
           onPressed: _showDirectOrderPicker,
-          backgroundColor: const Color(0xFF2563EB),
+          backgroundColor: const Color(0xFF0B6B5E),
           icon: const Icon(Icons.add, color: Colors.white),
           label: const Text(
             'Take Order',
@@ -328,46 +319,56 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen>
 
     // Pharma MR View (Tabbed view: Visit Orders & Pharma POBs)
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Orders & POBs'),
-        bottom: TabBar(
-          controller: _tabController,
-          tabs: [
-            Tab(
-              icon: const Icon(Icons.route, size: 20),
-              text: 'Visit Orders (${_visits.length})',
-            ),
-            Tab(
-              icon: const Icon(Icons.medication, size: 20),
-              text: 'Pharma POBs (${_pobs.length})',
-            ),
-          ],
-        ),
-      ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _showDirectOrderPicker,
-        backgroundColor: const Color(0xFF059669),
+        backgroundColor: const Color(0xFF0B6B5E),
         icon: const Icon(Icons.add, color: Colors.white),
         label: const Text(
           'Book Order / POB',
           style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
         ),
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : TabBarView(
+      body: Column(
+        children: [
+          Container(
+            color: theme.colorScheme.surface,
+            child: TabBar(
               controller: _tabController,
-              children: [
-                RefreshIndicator(
-                  onRefresh: _loadAll,
-                  child: _buildVisitOrdersView(theme, session),
+              labelColor: const Color(0xFF0B6B5E),
+              indicatorColor: const Color(0xFF0B6B5E),
+              unselectedLabelColor: Colors.grey.shade600,
+              indicatorWeight: 3,
+              tabs: [
+                Tab(
+                  icon: const Icon(Icons.route, size: 18),
+                  text: 'Visit Orders (${_visits.length})',
                 ),
-                RefreshIndicator(
-                  onRefresh: _loadAll,
-                  child: _buildPobsView(theme),
+                Tab(
+                  icon: const Icon(Icons.medication, size: 18),
+                  text: 'Pharma POBs (${_pobs.length})',
                 ),
               ],
             ),
+          ),
+          Expanded(
+            child: _loading
+                ? const Center(child: CircularProgressIndicator())
+                : TabBarView(
+                    controller: _tabController,
+                    children: [
+                      RefreshIndicator(
+                        onRefresh: _loadAll,
+                        child: _buildVisitOrdersView(theme, session),
+                      ),
+                      RefreshIndicator(
+                        onRefresh: _loadAll,
+                        child: _buildPobsView(theme),
+                      ),
+                    ],
+                  ),
+          ),
+        ],
+      ),
     );
   }
 
