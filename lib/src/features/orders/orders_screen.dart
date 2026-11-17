@@ -681,37 +681,77 @@ class _SelectPartySheetState extends State<_SelectPartySheet> {
             ),
           ),
           Expanded(
-            child: ListView.separated(
-              padding: const EdgeInsets.all(16),
-              itemCount: filtered.length,
-              separatorBuilder: (_, __) => const Divider(height: 1),
-              itemBuilder: (ctx, i) {
-                final c = filtered[i];
-                final name = c['displayName']?.toString() ?? 'Party';
-                final cat = c['medicalCategory']?.toString().toUpperCase();
-                final city = c['billingCity']?.toString() ?? '';
-                final isChemist = cat == 'CHEMIST' || cat == 'RETAILER';
-
-                return ListTile(
-                  leading: CircleAvatar(
-                    backgroundColor: isChemist
-                        ? const Color(0xFF059669).withValues(alpha: 0.1)
-                        : Colors.blue.withValues(alpha: 0.1),
-                    child: Icon(
-                      isChemist ? Icons.local_pharmacy : Icons.business,
-                      color: isChemist ? const Color(0xFF059669) : Colors.blue,
-                      size: 20,
+            child: filtered.isEmpty
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.person_search,
+                            size: 48,
+                            color: Colors.grey.shade400,
+                          ),
+                          const SizedBox(height: 12),
+                          Text(
+                            _filter.isEmpty
+                                ? 'No customers found in this tenant.'
+                                : 'No party matching "$_filter"',
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            _filter.isEmpty
+                                ? 'Add customers via Web Console or log in as Pharma MR (9000000029).'
+                                : 'Try searching by name, city, or phone.',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: Colors.grey.shade600,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
+                  )
+                : ListView.separated(
+                    padding: const EdgeInsets.all(16),
+                    itemCount: filtered.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemBuilder: (ctx, i) {
+                      final c = filtered[i];
+                      final name = c['displayName']?.toString() ?? 'Party';
+                      final cat =
+                          c['medicalCategory']?.toString().toUpperCase();
+                      final city = c['billingCity']?.toString() ?? '';
+                      final isChemist = cat == 'CHEMIST' || cat == 'RETAILER';
+
+                      return ListTile(
+                        leading: CircleAvatar(
+                          backgroundColor: isChemist
+                              ? const Color(0xFF059669).withValues(alpha: 0.1)
+                              : Colors.blue.withValues(alpha: 0.1),
+                          child: Icon(
+                            isChemist ? Icons.local_pharmacy : Icons.business,
+                            color: isChemist
+                                ? const Color(0xFF059669)
+                                : Colors.blue,
+                            size: 20,
+                          ),
+                        ),
+                        title: Text(
+                          name,
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        subtitle: Text([
+                          if (cat != null) cat,
+                          if (city.isNotEmpty) city,
+                        ].join(' · ')),
+                        onTap: () => Navigator.pop(ctx, c),
+                      );
+                    },
                   ),
-                  title: Text(name, style: const TextStyle(fontWeight: FontWeight.bold)),
-                  subtitle: Text([
-                    if (cat != null) cat,
-                    if (city.isNotEmpty) city,
-                  ].join(' · ')),
-                  onTap: () => Navigator.pop(ctx, c),
-                );
-              },
-            ),
           ),
         ],
       ),
